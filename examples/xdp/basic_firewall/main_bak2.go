@@ -1,4 +1,4 @@
-package main
+package main2
 
 import (
 	"encoding/json"
@@ -20,10 +20,10 @@ type Config struct {
 	InterfaceName string
 	PPS           uint64
 	BPS           uint64
-	Ipv4Blacklist []string //用户初始自定义的黑名单列表
+	Ipv4Blacklist []string
 	//Ipv6Blacklist []string
-	BlockTime   uint64 //0->不永久封锁，>0->永久封锁
-	UnBlockTime uint64 //非永久封锁时的解封时间
+	BlockTime   uint64
+	UnBlockTime uint64
 }
 
 // 编译好的eBPF程序路径
@@ -104,6 +104,10 @@ func main() {
 	if ip_blacklist == nil {
 		fatalError("eBPF map 'ip_blacklist' not found")
 	}
+	ipv6_blacklist := bpf.GetMapByName("ipv6_blacklist")
+	if ipv6_blacklist == nil {
+		fatalError("eBPF map 'ipv6_blacklist' not found")
+	}
 	for i, s := range config.Ipv4Blacklist {
 		ipu32, erri := ipToUint32(s)
 		if erri != nil {
@@ -156,7 +160,7 @@ func main() {
 	}
 
 	// Populate eBPF map with IPv4 addresses to block
-	fmt.Println("Blacklisting IPv4 addresses...")
+	fmt.Println("Blacklisting IPv4 or IPv6 addresses...")
 
 	// Load XDP program into kernel
 	err6 := xdp.Load()
@@ -191,7 +195,7 @@ func main() {
 		select {
 		case <-ticker.C:
 			/*
-				fmt.Println("IP                 DROPs")
+				fmt.Println("IP/IPV6                 DROPs")
 
 				for i := 0; i < len(ipList); i++ {
 					fmt.Printf("%s\n", ipList[i])

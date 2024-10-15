@@ -5,8 +5,8 @@
 // uncomment this to get prints at /sys/kernel/debug/tracing/trace
 // #define DEBUG
 
-#define AF_INET		2	/* Internet IP Protocol 	*/
-#define ETH_ALEN    6
+#define AF_INET		2	/* 用于指定地址族为IPv4 	*/
+#define ETH_ALEN    6   /* 以太网地址长度为6字节 */
 
 
 #include <bpf_helpers.h>
@@ -36,11 +36,15 @@ struct iphdr {
   __u32 daddr;
 } __attribute__((packed));
 
-/* XDP enabled TX ports for redirect map */
+/* XDP 启用 TX 端口用于重定向映射 */
 BPF_MAP_DEF(if_redirect) = {
-    .map_type = BPF_MAP_TYPE_DEVMAP,
-    .key_size = sizeof(__u32),
-    .value_size = sizeof(__u32),
+    //网络设备映射用于将网络流量从一个网络接口重定向到另一个网络接口。
+    .map_type = BPF_MAP_TYPE_DEVMAP, 
+    //__u32 是一个无符号32位整数类型，用于表示网络接口的索引。
+    .key_size = sizeof(__u32), 
+    //__u32 是一个无符号32位整数类型，用于表示网络接口的索引。
+    .value_size = sizeof(__u32), 
+    //max_entries 表示映射中可以存储的最大条目数。
     .max_entries = 64,
 };
 BPF_MAP_ADD(if_redirect);

@@ -1,7 +1,8 @@
-package main
+package main2
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dropbox/goebpf"
@@ -18,13 +21,14 @@ type ipAddressList []string
 
 type Config struct {
 	InterfaceName string
-	PPS           uint64
-	BPS           uint64
-	Ipv4Blacklist []string //用户初始自定义的黑名单列表
-	//Ipv6Blacklist []string
-	BlockTime   uint64 //0->不永久封锁，>0->永久封锁
-	UnBlockTime uint64 //非永久封锁时的解封时间
+	PPS           int
+	BPS           int
+	Ipv4Blacklist []string
+	Ipv6Blacklist []string
 }
+
+// 绑定XDP程序的接口
+//var iface = flag.String("iface", "", "Interface to bind XDP program to")
 
 // 编译好的eBPF程序路径
 var elf = flag.String("elf", "ebpf_prog/xdp_fw.elf", "clang/llvm compiled binary file")
@@ -35,6 +39,14 @@ var ipList ipAddressList
 const config_path = "./xdpfw.json"
 
 func main() {
+	// 解析命令行参数
+	//flag.Var(&ipList, "drop", "IPv4 CIDR to DROP traffic from, repeatable")
+	/*
+		flag.Parse()
+		if *iface == "" {
+			fatalError("-iface is required.")
+		}
+	*/
 	configFile, err1 := os.Open(config_path)
 	if err1 != nil {
 		fatalError("Failed to open config file: %v", err1)
@@ -54,9 +66,12 @@ func main() {
 	log.Printf("PPS: %d", config.PPS)
 	log.Printf("BPS: %d", config.BPS)
 	log.Printf("Ipv4Blacklist: %v", config.Ipv4Blacklist)
-	log.Printf("BlockTime: %d", config.BlockTime)
-	log.Printf("UnBlockTime: %d", config.UnBlockTime)
-	//log.Printf("Ipv6Blacklist: %v", config.Ipv6Blacklist)
+	log.Printf("Ipv6Blacklist: %v", config.Ipv6Blacklist)
+	/*
+		if len(ipList) == 0 {
+			fatalError("at least one IPv4 address to DROP required (-drop)")
+		}
+	*/
 	//创建eBPF系统实例，并加载编译好的eBPF程序。
 	bpf := goebpf.NewDefaultEbpfSystem()
 	err4 := bpf.LoadElf(*elf)
@@ -64,45 +79,16 @@ func main() {
 		fatalError("LoadElf() failed: %v", err4)
 	}
 	printBpfInfo(bpf)
-	config_pps := bpf.GetMapByName("config_pps")
-	config_bps := bpf.GetMapByName("config_bps")
-	if config_pps == nil {
-		fatalError("eBPF map 'config_pps' not found")
-	} else {
-		err := config_pps.Insert(1, config.PPS)
-		if err != nil {
-			fatalError("Unable to Insert into eBPF map: %v", err)
-		}
-	}
-	if config_bps == nil {
-		fatalError("eBPF map 'config_bps' not found")
-	} else {
-		err := config_bps.Insert(2, config.BPS)
-		if err != nil {
-			fatalError("Unable to Insert into eBPF map: %v", err)
-		}
-	}
-	block_time := bpf.GetMapByName("block_time")
-	un_block_time := bpf.GetMapByName("unblock_time")
-	if block_time == nil {
-		fatalError("eBPF map 'block_time' not found")
-	} else {
-		err := block_time.Insert(3, config.BlockTime)
-		if err != nil {
-			fatalError("Unable to Insert into eBPF map: %v", err)
-		}
-	}
-	if un_block_time == nil {
-		fatalError("eBPF map 'un_block_time' not found")
-	} else {
-		err := un_block_time.Insert(4, config.UnBlockTime)
-		if err != nil {
-			fatalError("Unable to Insert into eBPF map: %v", err)
-		}
-	}
+
+	// Get eBPF maps
 	ip_blacklist := bpf.GetMapByName("ip_blacklist")
 	if ip_blacklist == nil {
 		fatalError("eBPF map 'ip_blacklist' not found")
+	}
+
+	ipv6_blacklist := bpf.GetMapByName("ipv6_blacklist")
+	if ipv6_blacklist == nil {
+		fatalError("eBPF map 'ipv6_blacklist' not found")
 	}
 	for i, s := range config.Ipv4Blacklist {
 		ipu32, erri := ipToUint32(s)
@@ -110,12 +96,12 @@ func main() {
 			fmt.Println(erri)
 			continue
 		}
-		err := ip_blacklist.Insert(ipu32, 1)
+		err := ip_blacklist.Insert(ipu32, 3)
 		if err != nil {
 			fatalError("Unable to Insert into eBPF map: %v", err)
 		}
 		ipList = append(ipList, s)
-		fmt.Printf("Ipv4Blacklist[%d]: %d----%x\n", i, ipu32, ipu32)
+		fmt.Printf("Ipv4Blacklist[%d]: %d\n", i, ipu32)
 	}
 	fmt.Println("\nIPv4 黑名单列表：")
 	var currentKey interface{}
@@ -125,15 +111,13 @@ func main() {
 	if err5 != nil {
 		// 处理错误，可能是 Map 为空
 		fmt.Printf("Error getting first key:%v", err5)
-		return
+
 	}
 	currentKey = firstKey
-
 	// 循环直到没有更多的键
-	for currentKey != nil {
+	for {
 		// 使用当前键获取下一个键
-		nextKey, err_1 := ip_blacklist.GetNextKey(currentKey)
-
+		nextKey, err := ip_blacklist.GetNextKey(currentKey)
 		// 打印或处理键和值
 		currentValue, err := ip_blacklist.Lookup(currentKey)
 		if err != nil {
@@ -141,12 +125,21 @@ func main() {
 		} else {
 			fmt.Println("Key:", currentKey, "Value:", currentValue)
 		}
-		if err_1 != nil {
-			//fmt.Println("Error getting next key:", err_1)
+		if err != nil {
 			break
 		}
 		// 更新当前键为下一个键，继续遍历
 		currentKey = nextKey
+	}
+	for i, s := range config.Ipv6Blacklist {
+		/*
+			err := ipv6_blacklist.Insert(goebpf.CreateLPMtrieKey(s), 1)
+			if err != nil {
+				fatalError("Unable to Insert into eBPF map: %v", err)
+			}
+		*/
+		ipList = append(ipList, s)
+		fmt.Printf("Ipv6Blacklist[%d]: %s\n", i, s)
 	}
 	// Get XDP program. Name simply matches function from xdp_fw.c:
 	//      int firewall(struct xdp_md *ctx) {
@@ -156,7 +149,17 @@ func main() {
 	}
 
 	// Populate eBPF map with IPv4 addresses to block
-	fmt.Println("Blacklisting IPv4 addresses...")
+	fmt.Println("Blacklisting IPv4 or IPv6 addresses...")
+	/*
+		for index, ip := range ipList {
+			fmt.Printf("\t%s\n", ip)
+			err := blacklist.Insert(goebpf.CreateLPMtrieKey(ip), index)
+			if err != nil {
+				fatalError("Unable to Insert into eBPF map: %v", err)
+			}
+		}
+		fmt.Println()
+	*/
 
 	// Load XDP program into kernel
 	err6 := xdp.Load()
@@ -178,7 +181,7 @@ func main() {
 	ctrlC := make(chan os.Signal, 1)
 	signal.Notify(ctrlC, os.Interrupt)
 
-	fmt.Println("XDP program successfully loaded and attached.")
+	fmt.Println("XDP program successfully loaded and attached. Counters refreshed every second.")
 	fmt.Println("Press CTRL+C to stop.")
 	fmt.Println()
 
@@ -190,14 +193,12 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			/*
-				fmt.Println("IP                 DROPs")
+			fmt.Println("IP/IPV6                 DROPs")
 
-				for i := 0; i < len(ipList); i++ {
-					fmt.Printf("%s\n", ipList[i])
-				}
-				fmt.Println()
-			*/
+			for i := 0; i < len(ipList); i++ {
+				fmt.Printf("%s\n", ipList[i])
+			}
+			fmt.Println()
 
 		case <-ctrlC:
 			fmt.Println("\nDetaching program and exit")
@@ -210,11 +211,6 @@ func main() {
 func fatalError(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 	os.Exit(1)
-}
-
-// Implements flag.Value
-func (i *ipAddressList) String() string {
-	return fmt.Sprintf("%+v", *i)
 }
 
 func printBpfInfo(bpf goebpf.System) {
@@ -232,6 +228,50 @@ func printBpfInfo(bpf goebpf.System) {
 	fmt.Println()
 }
 
+// Implements flag.Value
+func (i *ipAddressList) String() string {
+	return fmt.Sprintf("%+v", *i)
+}
+
+// Implements flag.Value
+func (i *ipAddressList) Set(value string) error {
+	if len(*i) == 16 {
+		return errors.New("Up to 16 IPv4 addresses supported")
+	}
+	// Validate that value is correct IPv4 address
+	if !strings.Contains(value, "/") {
+		value += "/32"
+	}
+	if strings.Contains(value, ":") {
+		return fmt.Errorf("%s is not an IPv4 address", value)
+	}
+	_, _, err := net.ParseCIDR(value)
+	if err != nil {
+		return err
+	}
+	// Valid, add to the list
+	*i = append(*i, value)
+	return nil
+}
+
+func IPToUInt32(ipnr net.IP) uint32 {
+	bits := strings.Split(ipnr.String(), ".")
+
+	b0, _ := strconv.Atoi(bits[0])
+	b1, _ := strconv.Atoi(bits[1])
+	b2, _ := strconv.Atoi(bits[2])
+	b3, _ := strconv.Atoi(bits[3])
+
+	var sum uint32
+
+	sum += uint32(b0) << 24
+	sum += uint32(b1) << 16
+	sum += uint32(b2) << 8
+	sum += uint32(b3)
+
+	return sum
+}
+
 func ipToUint32(ip string) (uint32, error) {
 	addr := net.ParseIP(ip)
 	if addr == nil {
@@ -241,5 +281,15 @@ func ipToUint32(ip string) (uint32, error) {
 	if ipv4 == nil {
 		return 0, fmt.Errorf(ip + "不是IPv4地址")
 	}
-	return uint32(ipv4[0])<<24 + uint32(ipv4[1])<<16 + uint32(ipv4[2])<<8 + uint32(ipv4[3]), nil
+	return uint32(ipv4[12])<<24 + uint32(ipv4[13])<<16 + uint32(ipv4[14])<<8 + uint32(ipv4[15]), nil
+}
+
+func UInt32ToIP(intIP uint32) net.IP {
+	var bytes [4]byte
+	bytes[0] = byte(intIP & 0xFF)
+	bytes[1] = byte((intIP >> 8) & 0xFF)
+	bytes[2] = byte((intIP >> 16) & 0xFF)
+	bytes[3] = byte((intIP >> 24) & 0xFF)
+
+	return net.IPv4(bytes[3], bytes[2], bytes[1], bytes[0])
 }

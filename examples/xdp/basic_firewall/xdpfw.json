@@ -1,0 +1,8 @@
+{
+    "InterfaceName": "eth2",
+    "PPS": 100,
+    "BPS": 1000000,
+    "Ipv4Blacklist": ["10.90.5.21", "172.18.133.27"],
+    "blocktime":1,
+    "unblocktime":60
+}

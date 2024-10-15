@@ -1,11 +1,8 @@
-# Copyright (c) 2019 Dropbox, Inc.
-# Full license can be found in the LICENSE file.
-
 GOCMD := go
 GOBUILD := $(GOCMD) build
 GOCLEAN := $(GOCMD) clean
 CLANG := clang
-CLANG_INCLUDE := -I../../.. 
+CLANG_INCLUDE := -I../../.. -I/usr/include/aarch64-linux-gnu/
 
 GO_SOURCE := main.go
 GO_BINARY := main
@@ -20,12 +17,12 @@ build_bpf: $(EBPF_BINARY)
 build_go: $(GO_BINARY)
 
 clean:
-	$(GOCLEAN)
-	rm -f $(GO_BINARY)
-	rm -f $(EBPF_BINARY)
+        $(GOCLEAN)
+        rm -f $(GO_BINARY)
+        rm -f $(EBPF_BINARY)
 
 $(EBPF_BINARY): $(EBPF_SOURCE)
-	$(CLANG) $(CLANG_INCLUDE) -O2 -target bpf -c $^  -o $@
+        $(CLANG) $(CLANG_INCLUDE) -O2 -target bpf -c $^  -o $@
 
 $(GO_BINARY): $(GO_SOURCE)
-	$(GOBUILD) -v -o $@
+        CC=musl-gcc $(GOBUILD) -v -ldflags "-linkmode external -extldflags -static" -o $@

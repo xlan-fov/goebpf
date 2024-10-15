@@ -55,6 +55,32 @@ struct tcphdr {
   __u16 urg_ptr;
 };
 
+// UDP header
+struct udphdr {
+  __u16 source;
+  __u16 dest;
+  __u16 len;
+  __u16 check;
+} __attribute__((packed));
+
+// ICMP header
+struct icmphdr {
+  __u8 type;
+  __u8 code;
+  __u16 checksum;
+  union {
+    struct {
+      __u16 id;
+      __u16 sequence;
+    } echo;
+    __u32 gateway;
+    struct {
+      __u16 __unused;
+      __u16 mtu;
+    } frag;
+  } un;
+} __attribute__((packed));
+
 // PerfEvent eBPF map
 BPF_MAP_DEF(perfmap) = {
     .map_type = BPF_MAP_TYPE_PERF_EVENT_ARRAY,
