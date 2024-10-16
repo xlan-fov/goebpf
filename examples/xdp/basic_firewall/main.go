@@ -56,7 +56,6 @@ func main() {
 	log.Printf("Ipv4Blacklist: %v", config.Ipv4Blacklist)
 	log.Printf("BlockTime: %d", config.BlockTime)
 	log.Printf("UnBlockTime: %d", config.UnBlockTime)
-	//log.Printf("Ipv6Blacklist: %v", config.Ipv6Blacklist)
 	//创建eBPF系统实例，并加载编译好的eBPF程序。
 	bpf := goebpf.NewDefaultEbpfSystem()
 	err4 := bpf.LoadElf(*elf)
@@ -184,7 +183,6 @@ func main() {
 
 	//创建一个定时器，每秒触发一次。
 	//进入一个无限循环，同时等待定时器通道和中断信号通道。
-	//当定时器通道接收到信号时，打印IP地址和DROP计数。
 	//当中断信号通道接收到信号时，打印退出消息并退出程序。
 	ticker := time.NewTicker(1 * time.Second)
 	for {

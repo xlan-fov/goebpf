@@ -99,7 +99,7 @@ int firewall(struct xdp_md *ctx) {
     // Malformed Ethernet header
     return XDP_ABORTED;
   }
-  //检查以太网头部的协议字段是否为IPv4或IPv6协议
+  //检查以太网头部的协议字段是否为IPv4协议
   if (ether->h_proto != 0x08U) {  // htons(ETH_P_IP) -> 0x08U
     // 非IPv4数据包，直接放行
     //bpf_printk("pass----------non ip packet\n");
@@ -141,14 +141,9 @@ int firewall(struct xdp_md *ctx) {
         ip_stats_pointer->pps = 1;
         ip_stats_pointer->bps = pkt_len ;
         ip_stats_pointer->next_update = now + NANO_TO_SEC;
+        bpf_map_update_elem(&ip_counter, &saddr, ip_stats_pointer, BPF_ANY);
         return XDP_PASS;
       }
-    } else {
-      struct ip_stats new_ip_stats={0};
-      new_ip_stats.pps = 1;
-      new_ip_stats.bps = pkt_len;
-      new_ip_stats.next_update = now + NANO_TO_SEC;
-      bpf_map_update_elem(&ip_counter, &saddr, &new_ip_stats, BPF_ANY);
     }
     bpf_printk("Blocked:%d---------%x\n",saddr,saddr);
     return XDP_DROP;
