@@ -46,13 +46,21 @@ BPF_MAP_DEF(ip_counter) = {
 };
 BPF_MAP_ADD(ip_counter);
 
-BPF_MAP_DEF(ip_blacklist) = {
+BPF_MAP_DEF(ip_blacklist_t) = {
     .map_type = BPF_MAP_TYPE_LRU_HASH,
     .key_size = sizeof(__u32),
     .value_size = sizeof(__u32),
     .max_entries = MAX_RULES,
 };
-BPF_MAP_ADD(ip_blacklist);
+BPF_MAP_ADD(ip_blacklist_t);
+
+BPF_MAP_DEF(ip_blacklist_p) = {
+    .map_type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(__u32),
+    .value_size = sizeof(__u32),
+    .max_entries = MAX_RULES,
+};
+BPF_MAP_ADD(ip_blacklist_p);
 
 BPF_MAP_DEF(config_pps) = {
     .map_type = BPF_MAP_TYPE_LRU_HASH,
@@ -70,13 +78,13 @@ BPF_MAP_DEF(config_bps) = {
 };
 BPF_MAP_ADD(config_bps);
 
-BPF_MAP_DEF(block_time) = {
+BPF_MAP_DEF(block_flag) = {
     .map_type = BPF_MAP_TYPE_LRU_HASH,
     .key_size = sizeof(__u32),
     .value_size = sizeof(__u64),
     .max_entries = 1,
 };
-BPF_MAP_ADD(block_time);
+BPF_MAP_ADD(block_flag);
 
 BPF_MAP_DEF(unblock_time) = {
     .map_type = BPF_MAP_TYPE_LRU_HASH,
@@ -98,50 +106,55 @@ int firewall(struct xdp_md *ctx) {
   //以太网头部超出边界说明以太网头部不完整，要丢弃
   if (data + sizeof(*ether) > data_end) { 
     // Malformed Ethernet header
-    return XDP_ABORTED;
-  }
-  //检查以太网头部的协议字段是否为IPv4或IPv6协议
-  if (ether->h_proto != 0x08U ) {  
-    // 非IPv4或IPv6数据包，直接放行
-    //bpf_printk("pass----------non ip packet\n");
     return XDP_PASS;
   }
+  //检查以太网头部的协议字段是否为IPv4协议
+  if (ether->h_proto != 0x08U ) {  
+    // 非IPv4数据包，直接放行
+    //bpf_printk("pass----------non ip packet\n");
+    return XDP_DROP;
+  }
   struct iphdr *ip=NULL;
-  struct ip_stats* ip_stats_pointer= NULL;
-  __u64 *blocked = NULL;    // Check blacklist map.
   data += sizeof(*ether); //将数据指针移动到IPv4头部
   ip = data;  
   //检查IPv4头部是否超出数据包的边界
   if (data + sizeof(*ip) > data_end) {
-    return XDP_ABORTED;
+    return XDP_DROP;
   }
   __u32 saddr = ip->saddr;
   saddr = htonl(saddr);
-  //bpf_printk("IPv4:%d--------%x\n",saddr,saddr);
-  blocked=bpf_map_lookup_elem(&ip_blacklist, &saddr);
+  __u64 *blocked_perm = NULL;    // Check ip_blacklist_p
+  blocked_perm=bpf_map_lookup_elem(&ip_blacklist_p, &saddr);
+  if (blocked_perm) {
+    return XDP_DROP;
+  }
+  __u64 *blocked_temp = NULL;    // Check ip_blacklist_t
+  blocked_temp=bpf_map_lookup_elem(&ip_blacklist_t, &saddr);
+  struct ip_stats* ip_stats_pointer= NULL;
   ip_stats_pointer=bpf_map_lookup_elem(&ip_counter, &saddr);
   __u64 now = bpf_ktime_get_ns(); //获取当前的内核时间戳(纳秒)
   __u16 pkt_len = data_end - data;
-  if (blocked) {
+  if (blocked_temp) {
     //bpf_printk("Blocked:%d---------%x\n",saddr,saddr);
-    __u32 block_time_key=3;
+    __u32 block_flag_key=3;
     __u32 unblock_time_key=4;
-    __u64 *block_time_value = bpf_map_lookup_elem(&block_time, &block_time_key);
+    __u64 *block_flag_value = bpf_map_lookup_elem(&block_flag, &block_flag_key);
     __u64 *unblock_time_value = bpf_map_lookup_elem(&unblock_time, &unblock_time_key);
-    if (block_time_value==NULL || unblock_time_value==NULL) {
-      bpf_printk("block_time or unblock_time is NULL\n");
+    if (block_flag_value==NULL || unblock_time_value==NULL) {
+      //bpf_printk("block_flag or unblock_time is NULL\n");
       return XDP_DROP;
     }
-    if (*block_time_value>0) {
-      bpf_printk("Blocked forever:%d---------%x\n",saddr,saddr);
+    if (*block_flag_value>0) {
+      //bpf_printk("Blocked forever:%d---------%x\n",saddr,saddr);
       return XDP_DROP;
     }
     if (ip_stats_pointer) {
       if (now - ip_stats_pointer->next_update >= (*unblock_time_value)*NANO_TO_SEC) {
-        bpf_map_delete_elem(&ip_blacklist, &saddr);
+        bpf_map_delete_elem(&ip_blacklist_t, &saddr);
         ip_stats_pointer->pps = 1;
         ip_stats_pointer->bps = pkt_len ;
         ip_stats_pointer->next_update = now + NANO_TO_SEC;
+        bpf_map_update_elem(&ip_counter, &saddr, ip_stats_pointer, BPF_ANY);
         return XDP_PASS;
       }
     } else {
@@ -151,7 +164,7 @@ int firewall(struct xdp_md *ctx) {
       new_ip_stats.next_update = now + NANO_TO_SEC;
       bpf_map_update_elem(&ip_counter, &saddr, &new_ip_stats, BPF_ANY);
     }
-    bpf_printk("Blocked:%d---------%x\n",saddr,saddr);
+    //bpf_printk("Blocked:%d---------%x\n",saddr,saddr);
     return XDP_DROP;
   }
   if (ip_stats_pointer) {
@@ -191,7 +204,7 @@ int firewall(struct xdp_md *ctx) {
   }
   if (ip_stats_pointer->pps > limit_pps || ip_stats_pointer->bps > limit_bps) {
     __u32 value=1;
-    bpf_map_update_elem(&ip_blacklist, &saddr, &value, BPF_ANY);
+    bpf_map_update_elem(&ip_blacklist_t, &saddr, &value, BPF_ANY);
     return XDP_DROP;
   }
   //bpf_printk("pass----------not limit\n");
