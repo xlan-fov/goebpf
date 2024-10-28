@@ -189,6 +189,7 @@ func main() {
 			if num == 1 {
 				fmt.Printf("当前PPS是%d，要修改吗？(y/n)", config.PPS)
 				newInput, _ := reader.ReadString('\n')
+				//newInput = strings.TrimSpace(newInput)
 				if newInput == "y\n" || newInput == "Y\n" {
 					fmt.Print("请输入新的PPS: ")
 					newInput, _ := reader.ReadString('\n')
@@ -203,7 +204,7 @@ func main() {
 					if err2 != nil {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
-					fmt.Print("修改成功\n")
+					fmt.Print("\n修改成功\n")
 					/*
 						value, err := config_pps.Lookup(1)
 						if err != nil {
@@ -215,6 +216,7 @@ func main() {
 			} else if num == 2 {
 				fmt.Printf("当前BPS是%d，要修改吗？(y/n)", config.BPS)
 				newInput, _ := reader.ReadString('\n')
+				//newInput = strings.TrimSpace(newInput)
 				if newInput == "y\n" || newInput == "Y\n" {
 					fmt.Print("请输入新的BPS: ")
 					newInput, _ := reader.ReadString('\n')
@@ -230,7 +232,7 @@ func main() {
 					if err2 != nil {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
-					fmt.Print("修改成功\n")
+					fmt.Print("\n修改成功\n")
 				}
 			} else if num == 3 {
 				fmt.Printf("当前Ipv4BlacklistTemp(临时ip地址黑名单)的内容是:\n")
@@ -247,6 +249,7 @@ func main() {
 					if err_2 != nil {
 						break
 					}
+					cnt++
 					// 更新当前键为下一个键，继续遍历
 					currentKey = nextKey
 				}
@@ -280,7 +283,7 @@ func main() {
 						fatalError("Unable to Insert into eBPF map: %v", err)
 					}
 				}
-				fmt.Print("修改成功\n")
+				fmt.Print("\n修改成功\n")
 			} else if num == 4 {
 				fmt.Printf("当前Ipv4BlacklistPerm(永久ip地址黑名单)的内容是:\n")
 				firstKey, err1 := ip_blacklist_p.GetNextKey(nil)
@@ -296,6 +299,7 @@ func main() {
 					if err_2 != nil {
 						break
 					}
+					cnt++
 					// 更新当前键为下一个键，继续遍历
 					currentKey = nextKey
 				}
@@ -329,42 +333,46 @@ func main() {
 						fatalError("Unable to Insert into eBPF map: %v", err)
 					}
 				}
-				fmt.Print("修改成功\n")
+				fmt.Print("\n修改成功\n")
 			} else if num == 5 {
 				fmt.Printf("当前BlockFlag是%d，要修改吗？(y/n)", config.BlockFlag)
 				newInput, _ := reader.ReadString('\n')
+				//newInput = strings.Trim(newInput, " \n")
 				if newInput == "y\n" || newInput == "Y\n" {
 					fmt.Print("\n请输入新的BlockFlag: ")
 					newInput, _ := reader.ReadString('\n')
+					newInput = strings.Trim(newInput, " \n")
 					newBlockFlag, err := strconv.Atoi(newInput)
 					if err != nil {
 						fmt.Println("\n输入错误")
 						continue
 					}
 					config.BlockFlag = uint64(newBlockFlag)
-					err2 := block_time.Update(3, config.BlockFlag)
+					err2 := block_time.Insert(3, config.BlockFlag)
 					if err2 != nil {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
-					fmt.Print("修改成功\n")
+					fmt.Print("\n修改成功\n")
 				}
 			} else if num == 6 {
 				fmt.Printf("当前UnBlockTime是%d，要修改吗？(y/n)", config.UnBlockTime)
 				newInput, _ := reader.ReadString('\n')
+				//newInput = strings.Trim(newInput, " \n")
 				if newInput == "y\n" || newInput == "Y\n" {
 					fmt.Print("请输入新的UnBlockTime: ")
 					newInput, _ := reader.ReadString('\n')
+					newInput = strings.Trim(newInput, " \n")
 					newUnBlockTime, err := strconv.Atoi(newInput)
 					if err != nil {
 						fmt.Println("输入错误")
 						continue
 					}
 					config.UnBlockTime = uint64(newUnBlockTime)
-					err2 := un_block_time.Update(4, config.UnBlockTime)
+					err2 := un_block_time.Insert(4, config.UnBlockTime)
 					if err2 != nil {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
-					fmt.Print("修改成功\n")
+					fmt.Print("\n修改成功\n")
 				}
 			}
 		} else if text == "q" || text == "Q" {
