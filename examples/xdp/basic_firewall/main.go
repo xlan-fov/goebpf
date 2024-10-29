@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-
 	"encoding/binary"
 	"encoding/json"
 	"flag"
@@ -12,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dropbox/goebpf"
 )
@@ -259,8 +259,9 @@ func main() {
 					// 更新当前键为下一个键，继续遍历
 					currentKey = nextKey
 				}
-				fmt.Printf("\n请输入要删除的ip地址(点分十进制,形如192.168.1.1)(多个ip地址间以空格分隔)(不输入请直接按回车):")
+				fmt.Print("\n请输入要删除的ip地址(点分十进制,形如192.168.1.1)(多个ip地址间以空格分隔)(不输入请直接按回车):")
 				newInput2, _ := reader.ReadString('\n')
+				newInput2 = strings.TrimSpace(newInput2)
 				newIpList2 := strings.Split(newInput2, " ")
 				for _, s := range newIpList2 {
 					ipu32, erri := ipToUint32(s)
@@ -268,6 +269,13 @@ func main() {
 						fmt.Println(erri)
 						continue
 					}
+
+					_, err1 := ip_blacklist_t.Lookup(ipu32)
+					if err1 != nil {
+						fmt.Printf("\n临时黑名单中不存在该ip:%s，不能删除\n", s)
+						continue
+					}
+
 					err2 := ip_blacklist_t.Delete(ipu32)
 					if err2 != nil {
 						fatalError("Unable to Delete from eBPF map: %v", err)
@@ -281,6 +289,11 @@ func main() {
 					ipu32, erri := ipToUint32(s)
 					if erri != nil {
 						fmt.Println(erri)
+						continue
+					}
+					_, err1 := ip_blacklist_t.Lookup(ipu32)
+					if err1 == nil {
+						fmt.Printf("\n临时黑名单中存在该ip:%s，不用添加\n", s)
 						continue
 					}
 					err2 := ip_blacklist_t.Insert(ipu32, 1)
@@ -314,11 +327,17 @@ func main() {
 				}
 				fmt.Printf("\n请输入要删除的ip地址(点分十进制,形如192.168.1.1)(多个ip地址间以空格分隔)(不输入请直接按回车):")
 				newInput2, _ := reader.ReadString('\n')
+				newInput2 = strings.TrimSpace(newInput2)
 				newIpList2 := strings.Split(newInput2, " ")
 				for _, s := range newIpList2 {
 					ipu32, erri := ipToUint32(s)
 					if erri != nil {
 						fmt.Println(erri)
+						continue
+					}
+					_, err1 := ip_blacklist_p.Lookup(ipu32)
+					if err1 != nil {
+						fmt.Printf("\n永久黑名单中不存在该ip:%s，不能删除\n", s)
 						continue
 					}
 					err2 := ip_blacklist_p.Delete(ipu32)
@@ -334,6 +353,11 @@ func main() {
 					ipu32, erri := ipToUint32(s)
 					if erri != nil {
 						fmt.Println(erri)
+						continue
+					}
+					_, err1 := ip_blacklist_p.Lookup(ipu32)
+					if err1 == nil {
+						fmt.Printf("\n永久黑名单中存在该ip:%s，不用添加\n", s)
 						continue
 					}
 					err2 := ip_blacklist_p.Insert(ipu32, 1)
@@ -382,6 +406,68 @@ func main() {
 					}
 					fmt.Print("\n修改成功\n")
 				}
+			} else if num == 7 {
+				fmt.Print("请输入要打印的文件名(不输入请直接按回车,并采用默认文件名xdp_fw.log):")
+				newInput, _ := reader.ReadString('\n')
+				newInput = strings.TrimSpace(newInput)
+				if newInput == "" {
+					newInput = "xdp_fw.log"
+				}
+				file, err := os.OpenFile(newInput, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+				if err != nil {
+					fmt.Println("打开文件失败")
+					continue
+				}
+				defer file.Close()
+				fmt.Println("开始打印")
+				//获取临时黑名单
+				fmt.Fprintf(file, "\n系统时间:%s\n", time.Now().Format("2006-01-02 15:04:05"))
+				fmt.Fprintf(file, "临时黑名单:\n")
+				firstKey, err1 := ip_blacklist_t.GetNextKey(nil)
+				if err1 != nil {
+					fmt.Fprintf(file, "空\n")
+				}
+				currentKey := firstKey
+				cnt := 0
+				for currentKey != nil {
+					// 使用当前键获取下一个键
+					nextKey, err_2 := ip_blacklist_t.GetNextKey(currentKey)
+					keyUint32 := binary.LittleEndian.Uint32(currentKey)
+					fmt.Fprintf(file, "%d:%s\t", cnt, ipToDecimal(keyUint32))
+					if err_2 != nil {
+						break
+					}
+					cnt++
+					if cnt%3 == 0 {
+						fmt.Fprintf(file, "\n")
+					}
+					// 更新当前键为下一个键，继续遍历
+					currentKey = nextKey
+				}
+				//获取永久黑名单
+				fmt.Fprintf(file, "\n永久黑名单:\n")
+				firstKey, err1 = ip_blacklist_p.GetNextKey(nil)
+				if err1 != nil {
+					fmt.Fprintf(file, "空\n")
+				}
+				currentKey = firstKey
+				cnt = 0
+				for currentKey != nil {
+					// 使用当前键获取下一个键
+					nextKey, err_2 := ip_blacklist_p.GetNextKey(currentKey)
+					keyUint32 := binary.LittleEndian.Uint32(currentKey)
+					fmt.Fprintf(file, "%d:%s\t", cnt, ipToDecimal(keyUint32))
+					if err_2 != nil {
+						break
+					}
+					currentKey = nextKey
+					cnt++
+					if cnt%3 == 0 {
+						fmt.Fprintf(file, "\n")
+					}
+				}
+				fmt.Fprintf(file, "\n")
+				fmt.Println("打印成功")
 			}
 		} else if text == "q" || text == "Q" {
 			fmt.Print("\nDetaching program and exit\n")
