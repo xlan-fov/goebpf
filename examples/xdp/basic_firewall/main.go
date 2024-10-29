@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -176,12 +178,12 @@ func main() {
 		text, _ := reader.ReadString('\n')
 		text = strings.Trim(text, " \n")
 		if text == "e" || text == "E" {
-			fmt.Printf("1. PPS 2. BPS 3. Ipv4BlacklistTemp 4. Ipv4BlacklistPerm 5. BlockFlag 6. UnBlockTime 7. Quit")
+			fmt.Printf("1. PPS(每秒数据包数)\t2. BPS(每秒字节数)\t3. Ipv4BlacklistTemp(临时ip黑名单)\n4. Ipv4BlacklistPerm(永久ip黑名单)\t5. BlockFlag(是否永久封禁临时黑名单中的ip,0表示不永久，1表示永久)\n6. UnBlockTime(不永久封禁时,临时ip的解封时间(秒))\t7. Print(打印信息到文件)\t8. Quit(退出修改)\n")
 			fmt.Printf("\n请输入要修改的项:")
 			newInput, _ := reader.ReadString('\n')
 			newInput = strings.Trim(newInput, " \n")
 			num, err := strconv.Atoi(newInput)
-			fmt.Printf("您选择修改的项是: %d\n", num)
+			//fmt.Printf("您选择修改的项是: %d\n", num)
 			if err != nil {
 				fmt.Println("输入格式错误")
 				continue
@@ -245,17 +247,20 @@ func main() {
 				for currentKey != nil {
 					// 使用当前键获取下一个键
 					nextKey, err_2 := ip_blacklist_t.GetNextKey(currentKey)
-					fmt.Printf("%d:%d(十进制)\t%x(十六进制)", cnt, currentKey, currentKey)
+					keyUint32 := binary.LittleEndian.Uint32(currentKey)
+					fmt.Printf("%d:%s\t", cnt, ipToDecimal(keyUint32))
 					if err_2 != nil {
 						break
 					}
 					cnt++
+					if cnt%3 == 0 {
+						fmt.Print("\n")
+					}
 					// 更新当前键为下一个键，继续遍历
 					currentKey = nextKey
 				}
 				fmt.Printf("\n请输入要删除的ip地址(点分十进制,形如192.168.1.1)(多个ip地址间以空格分隔)(不输入请直接按回车):")
 				newInput2, _ := reader.ReadString('\n')
-				newInput2 = strings.TrimSpace(newInput2)
 				newIpList2 := strings.Split(newInput2, " ")
 				for _, s := range newIpList2 {
 					ipu32, erri := ipToUint32(s)
@@ -280,7 +285,7 @@ func main() {
 					}
 					err2 := ip_blacklist_t.Insert(ipu32, 1)
 					if err2 != nil {
-						fatalError("Unable to Insert into eBPF map: %v", err)
+						fmt.Print("\nUnable to Insert into eBPF map: %v\n", err)
 					}
 				}
 				fmt.Print("\n修改成功\n")
@@ -295,17 +300,20 @@ func main() {
 				for currentKey != nil {
 					// 使用当前键获取下一个键
 					nextKey, err_2 := ip_blacklist_p.GetNextKey(currentKey)
-					fmt.Printf("%d:%d(十进制)\t%x(十六进制)", cnt, currentKey, currentKey)
+					keyUint32 := binary.LittleEndian.Uint32(currentKey)
+					fmt.Printf("%d:%s\t", cnt, ipToDecimal(keyUint32))
 					if err_2 != nil {
 						break
 					}
 					cnt++
+					if cnt%3 == 0 {
+						fmt.Print("\n")
+					}
 					// 更新当前键为下一个键，继续遍历
 					currentKey = nextKey
 				}
 				fmt.Printf("\n请输入要删除的ip地址(点分十进制,形如192.168.1.1)(多个ip地址间以空格分隔)(不输入请直接按回车):")
 				newInput2, _ := reader.ReadString('\n')
-				newInput2 = strings.TrimSpace(newInput2)
 				newIpList2 := strings.Split(newInput2, " ")
 				for _, s := range newIpList2 {
 					ipu32, erri := ipToUint32(s)
@@ -330,7 +338,7 @@ func main() {
 					}
 					err2 := ip_blacklist_p.Insert(ipu32, 1)
 					if err2 != nil {
-						fatalError("Unable to Insert into eBPF map: %v", err)
+						fmt.Print("Unable to Insert into eBPF map: %v", err)
 					}
 				}
 				fmt.Print("\n修改成功\n")
@@ -376,11 +384,10 @@ func main() {
 				}
 			}
 		} else if text == "q" || text == "Q" {
-			fmt.Println("\nDetaching program and exit")
+			fmt.Print("\nDetaching program and exit\n")
 			return
 		}
 	}
-
 }
 
 func fatalError(format string, args ...interface{}) {
@@ -411,11 +418,15 @@ func printBpfInfo(bpf goebpf.System) {
 func ipToUint32(ip string) (uint32, error) {
 	addr := net.ParseIP(ip)
 	if addr == nil {
-		return 0, fmt.Errorf(ip + "无效的IP地址")
+		return 0, fmt.Errorf(ip + "是无效的IP地址")
 	}
 	ipv4 := addr.To4()
 	if ipv4 == nil {
 		return 0, fmt.Errorf(ip + "不是IPv4地址")
 	}
 	return uint32(ipv4[0])<<24 + uint32(ipv4[1])<<16 + uint32(ipv4[2])<<8 + uint32(ipv4[3]), nil
+}
+
+func ipToDecimal(ip uint32) string {
+	return fmt.Sprintf("%d.%d.%d.%d", ip>>24, (ip>>16)&0xFF, (ip>>8)&0xFF, ip&0xFF)
 }
