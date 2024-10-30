@@ -33,9 +33,6 @@ type Config struct {
 // 编译好的eBPF程序路径
 var elf = flag.String("elf", "ebpf_prog/xdp_fw.elf", "clang/llvm compiled binary file")
 
-// 存储要阻止的IPv4地址
-var ipList ipAddressList
-
 const config_path = "./xdpfw.json"
 
 func main() {
@@ -138,7 +135,6 @@ func main() {
 		if err != nil {
 			fatalError("Unable to Insert into eBPF map: %v", err)
 		}
-		ipList = append(ipList, s)
 		fmt.Printf("Ipv4BlacklistTemp[%d]: %d----%x\n", i, ipu32, ipu32)
 	}
 	ip_blacklist_p := bpf.GetMapByName("ip_blacklist_p")
@@ -156,7 +152,6 @@ func main() {
 
 			fatalError("Unable to Insert into eBPF map: %v", err)
 		}
-		ipList = append(ipList, s)
 		fmt.Printf("Ipv4BlacklistPerm[%d]: %d----%x\n", i, ipu32, ipu32)
 	}
 	//      int firewall(struct xdp_md *ctx) {
@@ -278,8 +273,7 @@ func main() {
 				}
 				fmt.Print("\n请输入要删除的ip地址(点分十进制,形如192.168.1.1)(多个ip地址间以空格分隔)(不输入请直接按回车):")
 				newInput2, _ := reader.ReadString('\n')
-				newInput2 = strings.TrimSpace(newInput2)
-				newIpList2 := strings.Split(newInput2, " ")
+				newIpList2 := strings.Fields(newInput2)
 				for _, s := range newIpList2 {
 					ipu32, erri := ipToUint32(s)
 					if erri != nil {
@@ -300,8 +294,7 @@ func main() {
 				}
 				fmt.Printf("\n请输入要添加的ip地址(点分十进制,形如192.168.1.1)(多个ip地址间以空格分隔)(不输入请直接按回车):")
 				newInput, _ := reader.ReadString('\n')
-				newInput = strings.TrimSpace(newInput)
-				newIpList := strings.Split(newInput, " ")
+				newIpList := strings.Fields(newInput)
 				for _, s := range newIpList {
 					ipu32, erri := ipToUint32(s)
 					if erri != nil {
@@ -344,8 +337,7 @@ func main() {
 				}
 				fmt.Printf("\n请输入要删除的ip地址(点分十进制,形如192.168.1.1)(多个ip地址间以空格分隔)(不输入请直接按回车):")
 				newInput2, _ := reader.ReadString('\n')
-				newInput2 = strings.TrimSpace(newInput2)
-				newIpList2 := strings.Split(newInput2, " ")
+				newIpList2 := strings.Fields(newInput2)
 				for _, s := range newIpList2 {
 					ipu32, erri := ipToUint32(s)
 					if erri != nil {
@@ -364,8 +356,7 @@ func main() {
 				}
 				fmt.Printf("\n请输入要添加的ip地址(点分十进制,形如192.168.1.1)(多个ip地址间以空格分隔)(不输入请直接按回车):")
 				newInput, _ := reader.ReadString('\n')
-				newInput = strings.TrimSpace(newInput)
-				newIpList := strings.Split(newInput, " ")
+				newIpList := strings.Fields(newInput)
 				for _, s := range newIpList {
 					ipu32, erri := ipToUint32(s)
 					if erri != nil {

@@ -13,6 +13,29 @@
 #define default_syn_count 50
 #define default_udp_count 500
 
+/*
+// 以太网头部
+struct ethhdr {
+  __u8 h_dest[6]; // 目的MAC地址
+  __u8 h_source[6]; // 源MAC地址
+  __u16 h_proto;  // 协议类型
+} __attribute__((packed));  
+// IPv4头部
+struct iphdr {
+  __u8 ihl : 4; // 首部长度，,占4位
+  __u8 version : 4; // 版本号，占4位
+  __u8 tos; // 服务类型
+  __u16 tot_len;  // 总长度
+  __u16 id; // 标识
+  __u16 frag_off; // 分片偏移
+  __u8 ttl; // 生存时间
+  __u8 protocol;  // 协议
+  __u16 check;  // 校验和
+  __u32 saddr;  // 源IP地址
+  __u32 daddr;  // 目的IP地址
+} __attribute__((packed));  
+*/
+
 struct ip_stats{
     __u64 pps;  //每秒数据包数
     __u64 bps;  //每秒字节数
@@ -127,12 +150,13 @@ int firewall(struct xdp_md *ctx) {
   struct ethhdr *ether = data;
   //以太网头部超出边界说明以太网头部不完整，要丢弃
   if (data + sizeof(*ether) > data_end) { 
-    return XDP_DROP;
+    // Malformed Ethernet header
+    return XDP_PASS;
   }
   //检查以太网头部的协议字段是否为IPv4协议
   if (ether->h_proto != htons(ETH_P_IP) ) {  
     // 非IPv4数据包，直接放行
-    return XDP_PASS;
+    return XDP_DROP;
   }
   struct iphdr *ip=NULL;
   data += sizeof(*ether); //将数据指针移动到IPv4头部
@@ -311,17 +335,7 @@ int firewall(struct xdp_md *ctx) {
     }
   }
 
-  return XDP_PASS;
-}
 
-SEC("xdp/arp")
-int arp_firewall(struct xdp_md *ctx) {
-  void *data_end = (void *)(long)ctx->data_end; //数据包的结束指针
-  void *data = (void *)(long)ctx->data; //数据包的起始指针
-  if (data + sizeof(*ether) > data_end) { 
-    return XDP_DROP;
-  }
-  struct ethhdr *ether = data;
   return XDP_PASS;
 }
 
