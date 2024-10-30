@@ -20,12 +20,14 @@ type ipAddressList []string
 
 type Config struct {
 	InterfaceName     string
-	PPS               uint64
-	BPS               uint64
+	PPS               uint64   //每秒ip数据包数限制
+	BPS               uint64   //每秒ip字节数限制
 	Ipv4BlacklistTemp []string //用户初始自定义的可动态封锁的黑名单列表
 	Ipv4BlacklistPerm []string //永久封锁的黑名单列表
-	BlockFlag         uint64   //0->不永久封锁，>0->永久封锁
+	BlockFlag         uint64   //0->不永久封锁，1->永久封锁
 	UnBlockTime       uint64   //非永久封锁时的解封时间
+	SYNPS             uint64   //每秒SYN数据包数限制
+	UDPPS             uint64   //每秒UDP数据包数限制
 }
 
 // 编译好的eBPF程序路径
@@ -59,6 +61,8 @@ func main() {
 	fmt.Printf("Ipv4BlacklistPerm: %v\n", config.Ipv4BlacklistPerm)
 	fmt.Printf("BlockFlag: %d\n", config.BlockFlag)
 	fmt.Printf("UnBlockTime: %d\n", config.UnBlockTime)
+	fmt.Printf("SYNPS: %d\n", config.SYNPS)
+	fmt.Printf("UDPPS: %d\n", config.UDPPS)
 	//创建eBPF系统实例，并加载编译好的eBPF程序。
 	bpf := goebpf.NewDefaultEbpfSystem()
 	err4 := bpf.LoadElf(*elf)
@@ -102,6 +106,24 @@ func main() {
 			fatalError("Unable to Insert into eBPF map: %v", err)
 		}
 	}
+	config_syn_count := bpf.GetMapByName("config_syn")
+	config_udp_count := bpf.GetMapByName("config_udp")
+	if config_syn_count == nil {
+		fatalError("eBPF map 'config_syn_count' not found")
+	} else {
+		err := config_syn_count.Insert(5, config.SYNPS)
+		if err != nil {
+			fatalError("Unable to Insert into eBPF map: %v", err)
+		}
+	}
+	if config_udp_count == nil {
+		fatalError("eBPF map 'config_udp_count' not found")
+	} else {
+		err := config_udp_count.Insert(6, config.UDPPS)
+		if err != nil {
+			fatalError("Unable to Insert into eBPF map: %v", err)
+		}
+	}
 	ip_blacklist_t := bpf.GetMapByName("ip_blacklist_t")
 	if ip_blacklist_t == nil {
 		fatalError("eBPF map 'ip_blacklist_t' not found")
@@ -137,15 +159,11 @@ func main() {
 		ipList = append(ipList, s)
 		fmt.Printf("Ipv4BlacklistPerm[%d]: %d----%x\n", i, ipu32, ipu32)
 	}
-	// Get XDP program. Name simply matches function from xdp_fw.c:
 	//      int firewall(struct xdp_md *ctx) {
 	xdp := bpf.GetProgramByName("firewall")
 	if xdp == nil {
 		fatalError("Program 'firewall' not found.")
 	}
-
-	// Populate eBPF map with IPv4 addresses to block
-	fmt.Println("Blacklisting IPv4 addresses...")
 
 	// Load XDP program into kernel
 	err6 := xdp.Load()
@@ -161,8 +179,7 @@ func main() {
 	//用于确保在函数返回之前调用xdp.Detach函数
 	defer xdp.Detach()
 
-	fmt.Println("XDP program successfully loaded and attached.")
-	fmt.Println()
+	fmt.Print("\nXDP program successfully loaded and attached.\n")
 
 	//创建一个定时器，每秒触发一次。
 	//进入一个无限循环，同时等待定时器通道和中断信号通道。
@@ -176,12 +193,12 @@ func main() {
 	for {
 		fmt.Print("按'e'键修改配置，按'q'键退出程序\n")
 		text, _ := reader.ReadString('\n')
-		text = strings.Trim(text, " \n")
+		text = strings.TrimSpace(text)
 		if text == "e" || text == "E" {
-			fmt.Printf("1. PPS(每秒数据包数)\t2. BPS(每秒字节数)\t3. Ipv4BlacklistTemp(临时ip黑名单)\n4. Ipv4BlacklistPerm(永久ip黑名单)\t5. BlockFlag(是否永久封禁临时黑名单中的ip,0表示不永久，1表示永久)\n6. UnBlockTime(不永久封禁时,临时ip的解封时间(秒))\t7. Print(打印信息到文件)\t8. Quit(退出修改)\n")
+			fmt.Printf("1. PPS(每秒数据包数)\t2. BPS(每秒字节数)\t3. Ipv4BlacklistTemp(临时ip黑名单)\n4. Ipv4BlacklistPerm(永久ip黑名单)\t5. BlockFlag(是否永久封禁临时黑名单中的ip,0表示不永久，1表示永久)\n6. UnBlockTime(不永久封禁时,临时ip的解封时间(秒))\t7. Print(打印信息到文件)\n8.SYNPS(每秒SYN请求数)\t9.UDPPS(每秒UDP包数)\t10. Quit(退出修改)\n")
 			fmt.Printf("\n请输入要修改的项:")
 			newInput, _ := reader.ReadString('\n')
-			newInput = strings.Trim(newInput, " \n")
+			newInput = strings.TrimSpace(newInput)
 			num, err := strconv.Atoi(newInput)
 			//fmt.Printf("您选择修改的项是: %d\n", num)
 			if err != nil {
@@ -191,8 +208,8 @@ func main() {
 			if num == 1 {
 				fmt.Printf("当前PPS是%d，要修改吗？(y/n)", config.PPS)
 				newInput, _ := reader.ReadString('\n')
-				//newInput = strings.TrimSpace(newInput)
-				if newInput == "y\n" || newInput == "Y\n" {
+				newInput = strings.TrimSpace(newInput)
+				if newInput == "y" || newInput == "Y" {
 					fmt.Print("请输入新的PPS: ")
 					newInput, _ := reader.ReadString('\n')
 					newInput = strings.TrimSpace(newInput)
@@ -218,8 +235,8 @@ func main() {
 			} else if num == 2 {
 				fmt.Printf("当前BPS是%d，要修改吗？(y/n)", config.BPS)
 				newInput, _ := reader.ReadString('\n')
-				//newInput = strings.TrimSpace(newInput)
-				if newInput == "y\n" || newInput == "Y\n" {
+				newInput = strings.TrimSpace(newInput)
+				if newInput == "y" || newInput == "Y" {
 					fmt.Print("请输入新的BPS: ")
 					newInput, _ := reader.ReadString('\n')
 					newInput = strings.TrimSpace(newInput)
@@ -369,11 +386,11 @@ func main() {
 			} else if num == 5 {
 				fmt.Printf("当前BlockFlag是%d，要修改吗？(y/n)", config.BlockFlag)
 				newInput, _ := reader.ReadString('\n')
-				//newInput = strings.Trim(newInput, " \n")
-				if newInput == "y\n" || newInput == "Y\n" {
+				newInput = strings.TrimSpace(newInput)
+				if newInput == "y" || newInput == "Y" {
 					fmt.Print("\n请输入新的BlockFlag: ")
 					newInput, _ := reader.ReadString('\n')
-					newInput = strings.Trim(newInput, " \n")
+					newInput = strings.TrimSpace(newInput)
 					newBlockFlag, err := strconv.Atoi(newInput)
 					if err != nil {
 						fmt.Println("\n输入错误")
@@ -389,11 +406,11 @@ func main() {
 			} else if num == 6 {
 				fmt.Printf("当前UnBlockTime是%d，要修改吗？(y/n)", config.UnBlockTime)
 				newInput, _ := reader.ReadString('\n')
-				//newInput = strings.Trim(newInput, " \n")
-				if newInput == "y\n" || newInput == "Y\n" {
+				newInput = strings.TrimSpace(newInput)
+				if newInput == "y" || newInput == "Y" {
 					fmt.Print("请输入新的UnBlockTime: ")
 					newInput, _ := reader.ReadString('\n')
-					newInput = strings.Trim(newInput, " \n")
+					newInput = strings.TrimSpace(newInput)
 					newUnBlockTime, err := strconv.Atoi(newInput)
 					if err != nil {
 						fmt.Println("输入错误")
@@ -415,7 +432,7 @@ func main() {
 				}
 				file, err := os.OpenFile(newInput, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 				if err != nil {
-					fmt.Println("打开文件失败")
+					fmt.Printf("\n打开文件失败:%s\n", newInput)
 					continue
 				}
 				defer file.Close()
@@ -468,6 +485,46 @@ func main() {
 				}
 				fmt.Fprintf(file, "\n")
 				fmt.Println("打印成功")
+			} else if num == 8 {
+				fmt.Printf("当前SYNPS是%d，要修改吗？(y/n)", config.SYNPS)
+				newInput, _ := reader.ReadString('\n')
+				newInput = strings.TrimSpace(newInput)
+				if newInput == "y" || newInput == "Y" {
+					fmt.Print("请输入新的SYNPS: ")
+					newInput, _ := reader.ReadString('\n')
+					newInput = strings.TrimSpace(newInput)
+					newSYNPS, err := strconv.Atoi(newInput)
+					if err != nil {
+						fmt.Println("输入错误")
+						continue
+					}
+					config.SYNPS = uint64(newSYNPS)
+					err2 := config_syn_count.Insert(5, config.SYNPS)
+					if err2 != nil {
+						fatalError("Unable to Insert into eBPF map: %v", err2)
+					}
+					fmt.Print("\n修改成功\n")
+				}
+			} else if num == 9 {
+				fmt.Printf("当前UDPPS是%d，要修改吗？(y/n)", config.UDPPS)
+				newInput, _ := reader.ReadString('\n')
+				newInput = strings.TrimSpace(newInput)
+				if newInput == "y" || newInput == "Y" {
+					fmt.Print("请输入新的UDPPS: ")
+					newInput, _ := reader.ReadString('\n')
+					newInput = strings.TrimSpace(newInput)
+					newUDPPS, err := strconv.Atoi(newInput)
+					if err != nil {
+						fmt.Println("输入错误")
+						continue
+					}
+					config.UDPPS = uint64(newUDPPS)
+					err2 := config_udp_count.Insert(6, config.UDPPS)
+					if err2 != nil {
+						fatalError("Unable to Insert into eBPF map: %v", err2)
+					}
+					fmt.Print("\n修改成功\n")
+				}
 			}
 		} else if text == "q" || text == "Q" {
 			fmt.Print("\nDetaching program and exit\n")
