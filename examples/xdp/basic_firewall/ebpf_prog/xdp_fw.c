@@ -318,10 +318,10 @@ SEC("xdp/arp")
 int arp_firewall(struct xdp_md *ctx) {
   void *data_end = (void *)(long)ctx->data_end; //数据包的结束指针
   void *data = (void *)(long)ctx->data; //数据包的起始指针
+  struct ethhdr *ether = data;
   if (data + sizeof(*ether) > data_end) { 
     return XDP_DROP;
   }
-  struct ethhdr *ether = data;
   return XDP_PASS;
 }
 
