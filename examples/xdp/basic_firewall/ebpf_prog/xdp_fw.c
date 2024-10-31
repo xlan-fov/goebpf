@@ -224,7 +224,6 @@ int firewall(struct xdp_md *ctx) {
     return XDP_DROP;
   }
 
-
   struct tcphdr *tcph = NULL;
   struct udphdr *udph = NULL;
   switch (ip->protocol) {
@@ -322,7 +321,29 @@ int arp_firewall(struct xdp_md *ctx) {
   if (data + sizeof(*ether) > data_end) { 
     return XDP_DROP;
   }
+  if (ether->h_proto != htons(ETH_P_ARP) ) {  
+    return XDP_PASS;
+  }
+
   return XDP_PASS;
 }
 
 char _license[] SEC("license") = "GPL";
+
+/*
+#define ETH_ALEN 6        // MAC地址长度
+#define ETH_HLEN 14       // 以太网头部长度
+
+struct ethhdr {
+    unsigned char h_dest[ETH_ALEN];  // 目的MAC地址
+    unsigned char h_source[ETH_ALEN]; // 源MAC地址
+    __be16 h_proto;                   // 以太网协议类型
+} __attribute__((packed));
+
+
+
+#define ETH_P_IP 0x0800 // IP协议
+#define ETH_P_ARP 0x0806 // ARP协议
+#define ETH_P_ALL 0x0003 // 所有协议
+
+*/
