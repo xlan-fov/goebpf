@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include "stdlib.h"
 #include <linux/if_ether.h>
+#include <linux/if_arp.h>
 #include <linux/ip.h>
 #include <linux/udp.h>
 #include <linux/tcp.h>
@@ -117,6 +118,42 @@ BPF_MAP_DEF(config_udp) = {
 };
 BPF_MAP_ADD(config_udp);
 
+BPF_MAP_DEF(arp_flag) = {
+    .map_type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(__u32),
+    .value_size = sizeof(__u64),
+    .max_entries = 1,
+};
+BPF_MAP_ADD(arp_flag);
+
+BPF_MAP_DEF(arp_table) = {
+    .map_type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(__u32),  //IP地址
+    .value_size = sizeof(__u64), //MAC地址 
+    .max_entries = MAX_RULES,
+};
+BPF_MAP_ADD(arp_table);
+
+struct arp_hdr {
+    __u16 hardware_type;      // 硬件类型
+    __u16 protocol_type;      // 协议类型
+    __u8 hardware_size;        // 硬件地址长度
+    __u8 protocol_size;        // 协议地址长度
+    __u16 opcode;             // 操作码
+    unsigned char sender_hard_addr[ETH_ALEN]; // 发送方硬件地址
+    __u32 sender_proto_addr;  // 发送方协议地址
+    unsigned char target_hard_addr[ETH_ALEN]; // 目标硬件地址
+    __u32 target_proto_addr;  // 目标协议地址
+}__attribute__((packed));
+
+/*
+BPF_MAP_DEF(jump_table) = {
+    .map_type = BPF_MAP_TYPE_PROG_ARRAY,
+    .max_entries = 8,
+};
+BPF_MAP_ADD(jump_table);
+*/
+
 // XDP program //
 SEC("xdp")
 int firewall(struct xdp_md *ctx) {
@@ -130,8 +167,39 @@ int firewall(struct xdp_md *ctx) {
     return XDP_DROP;
   }
   //检查以太网头部的协议字段是否为IPv4协议
-  if (ether->h_proto != htons(ETH_P_IP) ) {  
-    // 非IPv4数据包，直接放行
+  if (ether->h_proto != htons(ETH_P_IP) && ether->h_proto != htons(ETH_P_ARP) ) {  
+    // 非IPv4或arp数据包，直接放行
+    return XDP_PASS;
+  }
+  if (ether->h_proto == htons(ETH_P_ARP)) {
+    void* arp_data = data + sizeof(*ether);
+    struct arp_hdr *arp = arp_data;
+    if (arp_data + sizeof(*arp) > data_end) {
+      return XDP_DROP;
+    }
+    __u32 arp_flag_key=7;
+    __u64 *arp_flag_value = bpf_map_lookup_elem(&arp_flag, &arp_flag_key);
+    if (arp_flag_value==NULL) {
+      return XDP_DROP;
+    }
+    if (*arp_flag_value!=0) { //根据ip-mac映射表进行过滤
+      __u32 saddr = arp->sender_proto_addr;
+      saddr = htonl(saddr); //将主机字节序转换为网络字节序
+      __u64* macValue = bpf_map_lookup_elem(&arp_table, &saddr);
+      if (macValue==NULL) {
+        return XDP_DROP;
+      } else {
+        __u64 mac_int = 0;
+        unsigned char *mac =arp->sender_hard_addr;
+        for (int i = 0; i < ETH_ALEN; i++) {
+            mac_int <<= 8; // 左移 8 位，为新字节腾出空间
+            mac_int |= mac[i]; // 将当前字节与结果结合
+        }
+        if (mac_int!=*macValue) {
+          return XDP_DROP;
+        }
+      }
+    }
     return XDP_PASS;
   }
   struct iphdr *ip=NULL;
@@ -162,7 +230,7 @@ int firewall(struct xdp_md *ctx) {
     if (block_flag_value==NULL || unblock_time_value==NULL) {
       return XDP_DROP;
     }
-    if (*block_flag_value>0) {
+    if (*block_flag_value!=0) {
       return XDP_DROP;
     }
     if (ip_stats_pointer) {
@@ -313,8 +381,9 @@ int firewall(struct xdp_md *ctx) {
   return XDP_PASS;
 }
 
-SEC("xdp/arp")
-int arp_firewall(struct xdp_md *ctx) {
+/*
+SEC("xdp")
+int firewall_arp(struct xdp_md *ctx) {
   void *data_end = (void *)(long)ctx->data_end; //数据包的结束指针
   void *data = (void *)(long)ctx->data; //数据包的起始指针
   struct ethhdr *ether = data;
@@ -322,11 +391,21 @@ int arp_firewall(struct xdp_md *ctx) {
     return XDP_DROP;
   }
   if (ether->h_proto != htons(ETH_P_ARP) ) {  
+    
+      //调用 firewall 函数
+      //int index=0;
+      //bpf_tail_call(ctx, &jump_table, index);
+    
     return XDP_PASS;
   }
-
+  data += sizeof(*ether);
+  struct arphdr *arp = data;
+  if (data + sizeof(*arp) > data_end) {
+    return XDP_DROP;
+  }
   return XDP_PASS;
 }
+*/
 
 char _license[] SEC("license") = "GPL";
 
@@ -342,7 +421,7 @@ struct ethhdr {
 
 
 
-#define ETH_P_IP 0x0800 // IP协议
+#define ETH_P_IP  0x0800 // IP协议
 #define ETH_P_ARP 0x0806 // ARP协议
 #define ETH_P_ALL 0x0003 // 所有协议
 

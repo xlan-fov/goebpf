@@ -2,7 +2,7 @@ GOCMD := go
 GOBUILD := $(GOCMD) build
 GOCLEAN := $(GOCMD) clean
 CLANG := clang
-CLANG_INCLUDE := -I../../.. -I/usr/include/aarch64-linux-gnu/
+CLANG_INCLUDE := -I. -I/usr/include/aarch64-linux-gnu/
 
 GO_SOURCE := main.go
 GO_BINARY := main
@@ -25,4 +25,4 @@ $(EBPF_BINARY): $(EBPF_SOURCE)
         $(CLANG) $(CLANG_INCLUDE) -O2 -target bpf -c $^  -o $@
 
 $(GO_BINARY): $(GO_SOURCE)
-        CC=musl-gcc $(GOBUILD) -v -ldflags "-linkmode external -extldflags -static" -o $@
+        $(GOBUILD) -v -ldflags "-linkmode external -extldflags -static" -o $@

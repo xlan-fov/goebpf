@@ -1,6 +1,3 @@
-// Copyright (c) 2019 Dropbox, Inc.
-// Full license can be found in the LICENSE file.
-
 // BPF helpers
 // Set of defines / prototypes to use from eBPF programs as well as from regular
 // linux/mac "cross" compilation.

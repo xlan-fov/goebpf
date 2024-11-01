@@ -18,16 +18,23 @@ import (
 
 type ipAddressList []string
 
+type ARPEntry struct {
+	Ip  string `json:"Ip"`  // 匹配 JSON 中的 "Ip"
+	Mac string `json:"Mac"` // 匹配 JSON 中的 "Mac"
+}
+
 type Config struct {
-	InterfaceName     string
-	PPS               uint64   //每秒ip数据包数限制
-	BPS               uint64   //每秒ip字节数限制
-	Ipv4BlacklistTemp []string //用户初始自定义的可动态封锁的黑名单列表
-	Ipv4BlacklistPerm []string //永久封锁的黑名单列表
-	BlockFlag         uint64   //0->不永久封锁，1->永久封锁
-	UnBlockTime       uint64   //非永久封锁时的解封时间
-	SYNPS             uint64   //每秒SYN数据包数限制
-	UDPPS             uint64   //每秒UDP数据包数限制
+	InterfaceName     string     `json:"InterfaceName"`
+	PPS               uint64     `json:"PPS"`               //每秒ip数据包数限制
+	BPS               uint64     `json:"BPS"`               //每秒ip字节数限制
+	Ipv4BlacklistTemp []string   `json:"Ipv4BlacklistTemp"` //用户初始自定义的可动态封锁的黑名单列表
+	Ipv4BlacklistPerm []string   `json:"Ipv4BlacklistPerm"` //永久封锁的黑名单列表
+	BlockFlag         uint64     `json:"BlockFlag"`         //0->不永久封锁，非0->永久封锁
+	UnBlockTime       uint64     `json:"UnBlockTime"`       //非永久封锁时的解封时间
+	SYNPS             uint64     `json:"SYNPS"`             //每秒SYN数据包数限制
+	UDPPS             uint64     `json:"UDPPS"`             //每秒UDP数据包数限制
+	ArpFlag           uint64     `json:"ArpFlag"`           //0->不开启ip-arp映射表，非0->开启
+	ArpTable          []ARPEntry `json:"ArpTable"`          // ARP 条目切片
 }
 
 // 编译好的eBPF程序路径
@@ -36,22 +43,24 @@ var elf = flag.String("elf", "ebpf_prog/xdp_fw.elf", "clang/llvm compiled binary
 const config_path = "./xdpfw.json"
 
 func main() {
+
 	configFile, err1 := os.Open(config_path)
 	if err1 != nil {
-		fatalError("Failed to open config file: %v", err1)
+		fatalError("无法打开配置文件: %v", err1)
 	}
 	defer configFile.Close()
 
 	configData, err2 := io.ReadAll(configFile)
 	if err2 != nil {
-		fatalError("Failed to read config file: %v", err2)
+		fatalError("无法读取配置文件: %v", err2)
 	}
 	var config Config
 	err3 := json.Unmarshal(configData, &config)
 	if err3 != nil {
-		fatalError("Failed to unmarshal config: %v", err3)
+		fatalError("无法解析配置文件: %v", err3)
 	}
-	fmt.Printf("InterfaceName: %s\n", config.InterfaceName)
+	fmt.Printf("配置文件内容如下:\n")
+	fmt.Printf("\nInterfaceName: %s\n", config.InterfaceName)
 	fmt.Printf("PPS: %d\n", config.PPS)
 	fmt.Printf("BPS: %d\n", config.BPS)
 	fmt.Printf("Ipv4BlacklistTemp: %v\n", config.Ipv4BlacklistTemp)
@@ -60,6 +69,11 @@ func main() {
 	fmt.Printf("UnBlockTime: %d\n", config.UnBlockTime)
 	fmt.Printf("SYNPS: %d\n", config.SYNPS)
 	fmt.Printf("UDPPS: %d\n", config.UDPPS)
+	fmt.Printf("ArpFlag: %d\n", config.ArpFlag)
+	fmt.Println("ARP Table Entries:")
+	for i, entry := range config.ArpTable {
+		fmt.Printf("%d:\tIP: %s\tMAC: %s\n", i, entry.Ip, entry.Mac)
+	}
 	//创建eBPF系统实例，并加载编译好的eBPF程序。
 	bpf := goebpf.NewDefaultEbpfSystem()
 	err4 := bpf.LoadElf(*elf)
@@ -70,60 +84,60 @@ func main() {
 	config_pps := bpf.GetMapByName("config_pps")
 	config_bps := bpf.GetMapByName("config_bps")
 	if config_pps == nil {
-		fatalError("eBPF map 'config_pps' not found")
+		fatalError("eBPF map 类型的 'config_pps' 找不到")
 	} else {
 		err := config_pps.Insert(1, config.PPS)
 		if err != nil {
-			fatalError("Unable to Insert into eBPF map: %v", err)
+			fatalError("无法插入 eBPF map: %v", err)
 		}
 	}
 	if config_bps == nil {
-		fatalError("eBPF map 'config_bps' not found")
+		fatalError("eBPF map 类型的 'config_bps' 找不到")
 	} else {
 		err := config_bps.Insert(2, config.BPS)
 		if err != nil {
-			fatalError("Unable to Insert into eBPF map: %v", err)
+			fatalError("无法插入 eBPF map: %v", err)
 		}
 	}
 	block_time := bpf.GetMapByName("block_flag")
 	un_block_time := bpf.GetMapByName("unblock_time")
 	if block_time == nil {
-		fatalError("eBPF map 'block_time' not found")
+		fatalError("eBPF map 类型的 'block_time' 找不到")
 	} else {
 		err := block_time.Insert(3, config.BlockFlag)
 		if err != nil {
-			fatalError("Unable to Insert into eBPF map: %v", err)
+			fatalError("无法插入 eBPF map: %v", err)
 		}
 	}
 	if un_block_time == nil {
-		fatalError("eBPF map 'un_block_time' not found")
+		fatalError("eBPF map 类型的 'un_block_time' 找不到")
 	} else {
 		err := un_block_time.Insert(4, config.UnBlockTime)
 		if err != nil {
-			fatalError("Unable to Insert into eBPF map: %v", err)
+			fatalError("无法插入 eBPF map: %v", err)
 		}
 	}
 	config_syn_count := bpf.GetMapByName("config_syn")
 	config_udp_count := bpf.GetMapByName("config_udp")
 	if config_syn_count == nil {
-		fatalError("eBPF map 'config_syn_count' not found")
+		fatalError("eBPF map 类型的 'config_syn_count' 找不到")
 	} else {
 		err := config_syn_count.Insert(5, config.SYNPS)
 		if err != nil {
-			fatalError("Unable to Insert into eBPF map: %v", err)
+			fatalError("无法插入 eBPF map: %v", err)
 		}
 	}
 	if config_udp_count == nil {
-		fatalError("eBPF map 'config_udp_count' not found")
+		fatalError("eBPF map 类型的 'config_udp_count' 找不到")
 	} else {
 		err := config_udp_count.Insert(6, config.UDPPS)
 		if err != nil {
-			fatalError("Unable to Insert into eBPF map: %v", err)
+			fatalError("无法插入 eBPF map: %v", err)
 		}
 	}
 	ip_blacklist_t := bpf.GetMapByName("ip_blacklist_t")
 	if ip_blacklist_t == nil {
-		fatalError("eBPF map 'ip_blacklist_t' not found")
+		fatalError("eBPF map 类型的 'ip_blacklist_t' 找不到")
 	}
 	for i, s := range config.Ipv4BlacklistTemp {
 		ipu32, erri := ipToUint32(s)
@@ -133,13 +147,13 @@ func main() {
 		}
 		err := ip_blacklist_t.Insert(ipu32, 1)
 		if err != nil {
-			fatalError("Unable to Insert into eBPF map: %v", err)
+			fatalError("无法插入 eBPF map: %v", err)
 		}
 		fmt.Printf("Ipv4BlacklistTemp[%d]: %d----%x\n", i, ipu32, ipu32)
 	}
 	ip_blacklist_p := bpf.GetMapByName("ip_blacklist_p")
 	if ip_blacklist_p == nil {
-		fatalError("eBPF map 'ip_blacklist_p' not found")
+		fatalError("eBPF map 类型的 'ip_blacklist_p' 找不到")
 	}
 	for i, s := range config.Ipv4BlacklistPerm {
 		ipu32, erri := ipToUint32(s)
@@ -150,23 +164,51 @@ func main() {
 		err := ip_blacklist_p.Insert(ipu32, 1)
 		if err != nil {
 
-			fatalError("Unable to Insert into eBPF map: %v", err)
+			fatalError("无法插入 eBPF map: %v", err)
 		}
 		fmt.Printf("Ipv4BlacklistPerm[%d]: %d----%x\n", i, ipu32, ipu32)
 	}
-	//      int firewall(struct xdp_md *ctx) {
+	arp_flag := bpf.GetMapByName("arp_flag")
+	if arp_flag == nil {
+		fatalError("eBPF map 类型的 'arp_flag' 找不到")
+	} else {
+		err := arp_flag.Insert(7, config.ArpFlag)
+		if err != nil {
+			fatalError("无法插入 eBPF map: %v", err)
+		}
+	}
+	arp_table := bpf.GetMapByName("arp_table")
+	if arp_table == nil {
+		fatalError("eBPF map 类型的 'arp_table' 找不到")
+	}
+	for _, entry := range config.ArpTable {
+		ipu32, erri := ipToUint32(entry.Ip)
+		if erri != nil {
+			fmt.Println(erri)
+			continue
+		}
+		mac, err := macToUint48(entry.Mac)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+		err = arp_table.Insert(ipu32, mac)
+		if err != nil {
+			fatalError("无法插入 eBPF map: %v", err)
+		}
+	}
+	//获取名为'firewall'的XDP程序
 	xdp := bpf.GetProgramByName("firewall")
 	if xdp == nil {
-		fatalError("Program 'firewall' not found.")
+		fatalError("程序'firewall'找不到!")
 	}
-
-	// Load XDP program into kernel
+	//加载XDP程序
 	err6 := xdp.Load()
 	if err6 != nil {
 		fatalError("xdp.Load(): %v", err6)
 	}
 
-	// Attach to interface
+	//将XDP程序附加到指定的网络接口上
 	err7 := xdp.Attach(config.InterfaceName)
 	if err7 != nil {
 		fatalError("xdp.Attach(): %v", err7)
@@ -176,32 +218,32 @@ func main() {
 
 	fmt.Print("\nXDP program successfully loaded and attached.\n")
 
-	//创建一个定时器，每秒触发一次。
-	//进入一个无限循环，同时等待定时器通道和中断信号通道。
-	//当中断信号通道接收到信号时，打印退出消息并退出程序。
-
-	//ticker := time.NewTicker(1 * time.Second)
-	//defer ticker.Stop()
-
 	// 用户输入通道
 	reader := bufio.NewReader(os.Stdin)
+	longString := "\n1. PPS(每秒数据包数)\t2. BPS(每秒字节数)\t3. Ipv4BlacklistTemp(临时ip黑名单)\n" +
+		"4. Ipv4BlacklistPerm(永久ip黑名单)\t5. BlockFlag(是否永久封禁临时黑名单中的ip,0表示不永久,1表示永久)\n" +
+		"6. UnBlockTime(不永久封禁时,临时ip的解封时间(秒))\t7. Print(打印信息到文件)\n" +
+		"8. SYNPS(每秒SYN请求数)\t9. UDPPS(每秒UDP包数)\t10. ArpFlag(是否启用ip-arp映射表,0表示不启用,1表示启用)\n" +
+		"11. ArpTable(配置ip-arp映射表)\t12. Quit(退出修改)\n"
 	for {
 		fmt.Print("按'e'键修改配置，按'q'键退出程序\n")
 		text, _ := reader.ReadString('\n')
 		text = strings.TrimSpace(text)
 		if text == "e" || text == "E" {
-			fmt.Printf("1. PPS(每秒数据包数)\t2. BPS(每秒字节数)\t3. Ipv4BlacklistTemp(临时ip黑名单)\n4. Ipv4BlacklistPerm(永久ip黑名单)\t5. BlockFlag(是否永久封禁临时黑名单中的ip,0表示不永久，1表示永久)\n6. UnBlockTime(不永久封禁时,临时ip的解封时间(秒))\t7. Print(打印信息到文件)\n8.SYNPS(每秒SYN请求数)\t9.UDPPS(每秒UDP包数)\t10. Quit(退出修改)\n")
+			fmt.Printf(longString)
 			fmt.Printf("\n请输入要修改的项:")
 			newInput, _ := reader.ReadString('\n')
 			newInput = strings.TrimSpace(newInput)
+			if newInput == "" {
+				continue
+			}
 			num, err := strconv.Atoi(newInput)
-			//fmt.Printf("您选择修改的项是: %d\n", num)
 			if err != nil {
 				fmt.Println("输入格式错误")
 				continue
 			}
 			if num == 1 {
-				fmt.Printf("当前PPS是%d，要修改吗？(y/n)", config.PPS)
+				fmt.Printf("当前PPS是%d,要修改吗?(y/n)", config.PPS)
 				newInput, _ := reader.ReadString('\n')
 				newInput = strings.TrimSpace(newInput)
 				if newInput == "y" || newInput == "Y" {
@@ -218,17 +260,9 @@ func main() {
 					if err2 != nil {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
-					fmt.Print("\n修改成功\n")
-					/*
-						value, err := config_pps.Lookup(1)
-						if err != nil {
-							fatalError("Unable to Lookup into eBPF map: %v", err)
-						}
-						fmt.Printf("NEW_PPS: %d\n", value)
-					*/
 				}
 			} else if num == 2 {
-				fmt.Printf("当前BPS是%d，要修改吗？(y/n)", config.BPS)
+				fmt.Printf("当前BPS是%d,要修改吗?(y/n)", config.BPS)
 				newInput, _ := reader.ReadString('\n')
 				newInput = strings.TrimSpace(newInput)
 				if newInput == "y" || newInput == "Y" {
@@ -246,7 +280,6 @@ func main() {
 					if err2 != nil {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
-					fmt.Print("\n修改成功\n")
 				}
 			} else if num == 3 {
 				fmt.Printf("当前Ipv4BlacklistTemp(临时ip地址黑名单)的内容是:\n")
@@ -283,7 +316,7 @@ func main() {
 
 					_, err1 := ip_blacklist_t.Lookup(ipu32)
 					if err1 != nil {
-						fmt.Printf("\n临时黑名单中不存在该ip:%s，不能删除\n", s)
+						fmt.Printf("\n临时黑名单中不存在该ip:%s,不能删除\n", s)
 						continue
 					}
 
@@ -303,7 +336,7 @@ func main() {
 					}
 					_, err1 := ip_blacklist_t.Lookup(ipu32)
 					if err1 == nil {
-						fmt.Printf("\n临时黑名单中存在该ip:%s，不用添加\n", s)
+						fmt.Printf("\n临时黑名单中存在该ip:%s,不用添加\n", s)
 						continue
 					}
 					err2 := ip_blacklist_t.Insert(ipu32, 1)
@@ -311,7 +344,6 @@ func main() {
 						fmt.Print("\nUnable to Insert into eBPF map: %v\n", err)
 					}
 				}
-				fmt.Print("\n修改成功\n")
 			} else if num == 4 {
 				fmt.Printf("当前Ipv4BlacklistPerm(永久ip地址黑名单)的内容是:\n")
 				firstKey, err1 := ip_blacklist_p.GetNextKey(nil)
@@ -346,7 +378,7 @@ func main() {
 					}
 					_, err1 := ip_blacklist_p.Lookup(ipu32)
 					if err1 != nil {
-						fmt.Printf("\n永久黑名单中不存在该ip:%s，不能删除\n", s)
+						fmt.Printf("\n永久黑名单中不存在该ip:%s,不能删除\n", s)
 						continue
 					}
 					err2 := ip_blacklist_p.Delete(ipu32)
@@ -365,7 +397,7 @@ func main() {
 					}
 					_, err1 := ip_blacklist_p.Lookup(ipu32)
 					if err1 == nil {
-						fmt.Printf("\n永久黑名单中存在该ip:%s，不用添加\n", s)
+						fmt.Printf("\n永久黑名单中存在该ip:%s,不用添加\n", s)
 						continue
 					}
 					err2 := ip_blacklist_p.Insert(ipu32, 1)
@@ -373,9 +405,8 @@ func main() {
 						fmt.Print("Unable to Insert into eBPF map: %v", err)
 					}
 				}
-				fmt.Print("\n修改成功\n")
 			} else if num == 5 {
-				fmt.Printf("当前BlockFlag是%d，要修改吗？(y/n)", config.BlockFlag)
+				fmt.Printf("当前BlockFlag是%d,要修改吗?(y/n)", config.BlockFlag)
 				newInput, _ := reader.ReadString('\n')
 				newInput = strings.TrimSpace(newInput)
 				if newInput == "y" || newInput == "Y" {
@@ -392,10 +423,9 @@ func main() {
 					if err2 != nil {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
-					fmt.Print("\n修改成功\n")
 				}
 			} else if num == 6 {
-				fmt.Printf("当前UnBlockTime是%d，要修改吗？(y/n)", config.UnBlockTime)
+				fmt.Printf("当前UnBlockTime是%d,要修改吗?(y/n)", config.UnBlockTime)
 				newInput, _ := reader.ReadString('\n')
 				newInput = strings.TrimSpace(newInput)
 				if newInput == "y" || newInput == "Y" {
@@ -412,7 +442,6 @@ func main() {
 					if err2 != nil {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
-					fmt.Print("\n修改成功\n")
 				}
 			} else if num == 7 {
 				fmt.Print("请输入要打印的文件名(不输入请直接按回车,并采用默认文件名xdp_fw.log):")
@@ -474,10 +503,15 @@ func main() {
 						fmt.Fprintf(file, "\n")
 					}
 				}
+				//获取ip-arp映射表
+				fmt.Fprintf(file, "\nIP-ARP映射表:\n")
+				for i, entry := range config.ArpTable {
+					fmt.Fprintf(file, "%d:\tIP: %s\tMAC: %s\n", i, entry.Ip, entry.Mac)
+				}
 				fmt.Fprintf(file, "\n")
 				fmt.Println("打印成功")
 			} else if num == 8 {
-				fmt.Printf("当前SYNPS是%d，要修改吗？(y/n)", config.SYNPS)
+				fmt.Printf("当前SYNPS是%d,要修改吗?(y/n)", config.SYNPS)
 				newInput, _ := reader.ReadString('\n')
 				newInput = strings.TrimSpace(newInput)
 				if newInput == "y" || newInput == "Y" {
@@ -494,10 +528,9 @@ func main() {
 					if err2 != nil {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
-					fmt.Print("\n修改成功\n")
 				}
 			} else if num == 9 {
-				fmt.Printf("当前UDPPS是%d，要修改吗？(y/n)", config.UDPPS)
+				fmt.Printf("当前UDPPS是%d,要修改吗?(y/n)", config.UDPPS)
 				newInput, _ := reader.ReadString('\n')
 				newInput = strings.TrimSpace(newInput)
 				if newInput == "y" || newInput == "Y" {
@@ -514,7 +547,70 @@ func main() {
 					if err2 != nil {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
-					fmt.Print("\n修改成功\n")
+				}
+			} else if num == 10 {
+				fmt.Printf("当前ArpFlag是%d,要修改吗?(y/n)", config.ArpFlag)
+				newInput, _ := reader.ReadString('\n')
+				newInput = strings.TrimSpace(newInput)
+				if newInput == "y" || newInput == "Y" {
+					fmt.Print("请输入新的ArpFlag: ")
+					newInput, _ := reader.ReadString('\n')
+					newInput = strings.TrimSpace(newInput)
+					newArpFlag, err := strconv.Atoi(newInput)
+					if err != nil {
+						fmt.Println("输入错误")
+						continue
+					}
+					config.ArpFlag = uint64(newArpFlag)
+					err2 := arp_flag.Insert(7, config.ArpFlag)
+					if err2 != nil {
+						fatalError("Unable to Insert into eBPF map: %v", err2)
+					}
+				}
+			} else if num == 11 {
+				fmt.Printf("当前ArpTable(ip-arp映射表)的内容是:\n")
+				for i, entry := range config.ArpTable {
+					fmt.Printf("%d:\tIP: %s\tMAC: %s\n", i, entry.Ip, entry.Mac)
+				}
+				fmt.Printf("\n请输入要删除的ARP表项下标(不输入请直接按回车):")
+				newInput2, _ := reader.ReadString('\n')
+				newInput2 = strings.TrimSpace(newInput2)
+				if newInput2 != "" {
+					index, err := strconv.Atoi(newInput2)
+					if err != nil {
+						fmt.Println("输入错误")
+						continue
+					}
+					if index < 0 || index >= len(config.ArpTable) {
+						fmt.Println("下标越界")
+						continue
+					}
+					config.ArpTable = append(config.ArpTable[:index], config.ArpTable[index+1:]...)
+				}
+				fmt.Printf("\n请输入要添加的ip-arp表项(不输入请直接按回车):")
+				newInput, _ := reader.ReadString('\n')
+				newInput = strings.TrimSpace(newInput)
+				if newInput != "" {
+					newArpEntry := strings.Fields(newInput)
+					if len(newArpEntry) != 2 {
+						fmt.Println("输入错误")
+						continue
+					}
+					ipu32, erri := ipToUint32(newArpEntry[0])
+					if erri != nil {
+						fmt.Println(erri)
+						continue
+					}
+					mac, err := macToUint48(newArpEntry[1])
+					if err != nil {
+						fmt.Println(err)
+						continue
+					}
+					config.ArpTable = append(config.ArpTable, ARPEntry{Ip: newArpEntry[0], Mac: newArpEntry[1]})
+					err2 := arp_table.Insert(ipu32, mac)
+					if err2 != nil {
+						fatalError("Unable to Insert into eBPF map: %v", err2)
+					}
 				}
 			}
 		} else if text == "q" || text == "Q" {
@@ -563,4 +659,25 @@ func ipToUint32(ip string) (uint32, error) {
 
 func ipToDecimal(ip uint32) string {
 	return fmt.Sprintf("%d.%d.%d.%d", ip>>24, (ip>>16)&0xFF, (ip>>8)&0xFF, ip&0xFF)
+}
+
+func macToUint48(macStr string) (uint64, error) {
+	// 解析 MAC 地址字符串
+	mac, err := net.ParseMAC(macStr)
+	if err != nil {
+		return 0, err
+	}
+
+	// 确保 MAC 地址长度为 6 字节
+	if len(mac) != 6 {
+		return 0, fmt.Errorf("invalid MAC address length")
+	}
+
+	// 将 MAC 地址的 6 字节转换为 48 位无符号数
+	var macUint48 uint64
+	for i := 0; i < 6; i++ {
+		macUint48 = (macUint48 << 8) | uint64(mac[i])
+	}
+
+	return macUint48, nil
 }
