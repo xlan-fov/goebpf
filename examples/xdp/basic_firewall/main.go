@@ -33,7 +33,7 @@ type Config struct {
 	UnBlockTime       uint64     `json:"UnBlockTime"`       //非永久封锁时的解封时间
 	SYNPS             uint64     `json:"SYNPS"`             //每秒SYN数据包数限制
 	UDPPS             uint64     `json:"UDPPS"`             //每秒UDP数据包数限制
-	ArpFlag           uint64     `json:"ArpFlag"`           //0->不开启ip-arp映射表，非0->开启
+	ArpFlag           uint64     `json:"ArpFlag"`           //0->不开启ip-mac映射表，非0->开启
 	ArpTable          []ARPEntry `json:"ArpTable"`          // ARP 条目切片
 }
 
@@ -197,6 +197,28 @@ func main() {
 			fatalError("无法插入 eBPF map: %v", err)
 		}
 	}
+	drop_cnt := bpf.GetMapByName("drop_cnt")
+	if drop_cnt == nil {
+		fatalError("eBPF map 类型的 'drop_cnt' 找不到")
+	} else {
+		// 初始化 drop_cnt 为 0
+		value := uint64(0)
+		err := drop_cnt.Insert(8, value)
+		if err != nil {
+			fatalError("数据无法插入 eBPF map: %v", err)
+		}
+	}
+	pass_cnt := bpf.GetMapByName("pass_cnt")
+	if pass_cnt == nil {
+		fatalError("eBPF map 类型的 'pass_cnt' 找不到")
+	} else {
+		// 初始化 pass_cnt 为 0
+		value := uint64(0)
+		err := pass_cnt.Insert(9, value)
+		if err != nil {
+			fatalError("数据无法插入 eBPF map: %v", err)
+		}
+	}
 	//获取名为'firewall'的XDP程序
 	xdp := bpf.GetProgramByName("firewall")
 	if xdp == nil {
@@ -223,8 +245,8 @@ func main() {
 	longString := "\n1. PPS(每秒数据包数)\t2. BPS(每秒字节数)\t3. Ipv4BlacklistTemp(临时ip黑名单)\n" +
 		"4. Ipv4BlacklistPerm(永久ip黑名单)\t5. BlockFlag(是否永久封禁临时黑名单中的ip,0表示不永久,1表示永久)\n" +
 		"6. UnBlockTime(不永久封禁时,临时ip的解封时间(秒))\t7. Print(打印信息到文件)\n" +
-		"8. SYNPS(每秒SYN请求数)\t9. UDPPS(每秒UDP包数)\t10. ArpFlag(是否启用ip-arp映射表,0表示不启用,1表示启用)\n" +
-		"11. ArpTable(配置ip-arp映射表)\t12. Quit(退出修改)\n"
+		"8. SYNPS(每秒SYN请求数)\t9. UDPPS(每秒UDP包数)\t10. ArpFlag(是否启用ip-mac映射表,0表示不启用,1表示启用)\n" +
+		"11. ArpTable(配置ip-mac映射表)\t12. statistics(统计丢弃包和通过包数目)\t13. Quit(退出修改)\n"
 	for {
 		fmt.Print("按'e'键修改配置，按'q'键退出程序\n")
 		text, _ := reader.ReadString('\n')
@@ -503,11 +525,27 @@ func main() {
 						fmt.Fprintf(file, "\n")
 					}
 				}
-				//获取ip-arp映射表
+				//获取ip-mac映射表
 				fmt.Fprintf(file, "\nIP-ARP映射表:\n")
 				for i, entry := range config.ArpTable {
 					fmt.Fprintf(file, "%d:\tIP: %s\tMAC: %s\n", i, entry.Ip, entry.Mac)
 				}
+				//获取统计信息
+				dropCnt, errm := drop_cnt.Lookup(uint32(8))
+				if errm != nil {
+					fatalError("Unable to Lookup from eBPF map: %v", errm)
+				}
+				passCnt, errm2 := pass_cnt.Lookup(uint32(9))
+				if errm2 != nil {
+					fatalError("Unable to Lookup from eBPF map: %v", errm2)
+				}
+				var num_dropcnt uint64
+				num_dropcnt = binary.LittleEndian.Uint64(dropCnt)
+				var num_passcnt uint64
+				num_passcnt = binary.LittleEndian.Uint64(passCnt)
+				fmt.Fprintf(file, "\n丢弃包数目:%d\n", num_dropcnt)
+				fmt.Fprintf(file, "通过包数目:%d\n", num_dropcnt)
+
 				fmt.Fprintf(file, "\n")
 				fmt.Println("打印成功")
 			} else if num == 8 {
@@ -568,7 +606,7 @@ func main() {
 					}
 				}
 			} else if num == 11 {
-				fmt.Printf("当前ArpTable(ip-arp映射表)的内容是:\n")
+				fmt.Printf("当前ArpTable(ip-mac映射表)的内容是:\n")
 				for i, entry := range config.ArpTable {
 					fmt.Printf("%d:\tIP: %s\tMAC: %s\n", i, entry.Ip, entry.Mac)
 				}
@@ -587,7 +625,7 @@ func main() {
 					}
 					config.ArpTable = append(config.ArpTable[:index], config.ArpTable[index+1:]...)
 				}
-				fmt.Printf("\n请输入要添加的ip-arp表项(不输入请直接按回车):")
+				fmt.Printf("\n请输入要添加的ip-mac表项(不输入请直接按回车):")
 				newInput, _ := reader.ReadString('\n')
 				newInput = strings.TrimSpace(newInput)
 				if newInput != "" {
@@ -612,6 +650,23 @@ func main() {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
 				}
+			} else if num == 12 {
+				dropCnt, errm := drop_cnt.Lookup(uint32(8))
+				if errm != nil {
+					fatalError("Unable to Lookup from eBPF map: %v", errm)
+				}
+				passCnt, errm2 := pass_cnt.Lookup(uint32(9))
+				if errm2 != nil {
+					fatalError("Unable to Lookup from eBPF map: %v", errm2)
+				}
+				var num_dropcnt uint64
+				num_dropcnt = binary.LittleEndian.Uint64(dropCnt)
+				var num_passcnt uint64
+				num_passcnt = binary.LittleEndian.Uint64(passCnt)
+				fmt.Printf("\n丢弃包数目:%d\n", num_dropcnt)
+				fmt.Printf("通过包数目:%d\n", num_passcnt)
+			} else {
+				fmt.Print("\n退出修改\n")
 			}
 		} else if text == "q" || text == "Q" {
 			fmt.Print("\nDetaching program and exit\n")
@@ -670,7 +725,7 @@ func macToUint48(macStr string) (uint64, error) {
 
 	// 确保 MAC 地址长度为 6 字节
 	if len(mac) != 6 {
-		return 0, fmt.Errorf("invalid MAC address length")
+		return 0, fmt.Errorf("invalid MAC address length: %d", len(mac))
 	}
 
 	// 将 MAC 地址的 6 字节转换为 48 位无符号数

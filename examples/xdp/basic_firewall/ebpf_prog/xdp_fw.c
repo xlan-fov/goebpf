@@ -72,7 +72,7 @@ BPF_MAP_ADD(ip_blacklist_p);
 
 BPF_MAP_DEF(config_pps) = {
     .map_type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(__u32),
+    .key_size = sizeof(__u32),  //key = 1
     .value_size = sizeof(__u64),
     .max_entries = 1,
 };
@@ -80,7 +80,7 @@ BPF_MAP_ADD(config_pps);
 
 BPF_MAP_DEF(config_bps) = {
     .map_type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(__u32),
+    .key_size = sizeof(__u32),  //key = 2
     .value_size = sizeof(__u64),
     .max_entries = 1,
 };
@@ -88,7 +88,7 @@ BPF_MAP_ADD(config_bps);
 
 BPF_MAP_DEF(block_flag) = {
     .map_type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(__u32),
+    .key_size = sizeof(__u32), //key = 3
     .value_size = sizeof(__u64),
     .max_entries = 1,
 };
@@ -96,7 +96,7 @@ BPF_MAP_ADD(block_flag);
 
 BPF_MAP_DEF(unblock_time) = {
     .map_type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(__u32),
+    .key_size = sizeof(__u32),  //key = 4
     .value_size = sizeof(__u64),
     .max_entries = 1,
 };
@@ -104,7 +104,7 @@ BPF_MAP_ADD(unblock_time);
 
 BPF_MAP_DEF(config_syn) = {
     .map_type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(__u32),
+    .key_size = sizeof(__u32),  //key = 5
     .value_size = sizeof(__u64),
     .max_entries = 1,
 };
@@ -112,7 +112,7 @@ BPF_MAP_ADD(config_syn);
 
 BPF_MAP_DEF(config_udp) = {
     .map_type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(__u32),
+    .key_size = sizeof(__u32),  //key = 6
     .value_size = sizeof(__u64),
     .max_entries = 1,
 };
@@ -120,7 +120,7 @@ BPF_MAP_ADD(config_udp);
 
 BPF_MAP_DEF(arp_flag) = {
     .map_type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(__u32),
+    .key_size = sizeof(__u32),  //key = 7
     .value_size = sizeof(__u64),
     .max_entries = 1,
 };
@@ -133,6 +133,22 @@ BPF_MAP_DEF(arp_table) = {
     .max_entries = MAX_RULES,
 };
 BPF_MAP_ADD(arp_table);
+
+BPF_MAP_DEF(drop_cnt) = {
+    .map_type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(__u32),  //key = 8
+    .value_size = sizeof(__u64),
+    .max_entries = 1,
+};
+BPF_MAP_ADD(drop_cnt);
+
+BPF_MAP_DEF(pass_cnt) = {
+    .map_type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(__u32),  //key = 9
+    .value_size = sizeof(__u64),
+    .max_entries = 1,
+};
+BPF_MAP_ADD(pass_cnt);
 
 struct arp_hdr {
     __u16 hardware_type;      // 硬件类型
@@ -162,15 +178,25 @@ int firewall(struct xdp_md *ctx) {
 
   //将数据包的起始指针转换为以太网头部结构体的指针
   struct ethhdr *ether = data;
+  __u32 drop_cnt_key=8;
+  __u32 pass_cnt_key=9;
+  __u64* drop_cnt_value = NULL;
+  __u64* pass_cnt_value = NULL;
   //以太网头部超出边界说明以太网头部不完整，要丢弃
   if (data + sizeof(*ether) > data_end) { 
     return XDP_DROP;
   }
-  //检查以太网头部的协议字段是否为IPv4协议
+
   if (ether->h_proto != htons(ETH_P_IP) && ether->h_proto != htons(ETH_P_ARP) ) {  
     // 非IPv4或arp数据包，直接放行
+    pass_cnt_value = bpf_map_lookup_elem(&pass_cnt, &pass_cnt_key);
+    if (pass_cnt_value) {
+      __u64 new_pass_cnt_value =*pass_cnt_value + 1;
+      bpf_map_update_elem(&pass_cnt, &pass_cnt_key, &new_pass_cnt_value, BPF_ANY);
+    }
     return XDP_PASS;
   }
+
   if (ether->h_proto == htons(ETH_P_ARP)) {
     void* arp_data = data + sizeof(*ether);
     struct arp_hdr *arp = arp_data;
@@ -187,6 +213,11 @@ int firewall(struct xdp_md *ctx) {
       saddr = htonl(saddr); //将主机字节序转换为网络字节序
       __u64* macValue = bpf_map_lookup_elem(&arp_table, &saddr);
       if (macValue==NULL) {
+        drop_cnt_value = bpf_map_lookup_elem(&drop_cnt, &drop_cnt_key);
+        if (drop_cnt_value) {
+          __u64 new_drop_cnt_value =*drop_cnt_value + 1;
+          bpf_map_update_elem(&drop_cnt, &drop_cnt_key, &new_drop_cnt_value, BPF_ANY);
+        }
         return XDP_DROP;
       } else {
         __u64 mac_int = 0;
@@ -196,12 +227,23 @@ int firewall(struct xdp_md *ctx) {
             mac_int |= mac[i]; // 将当前字节与结果结合
         }
         if (mac_int!=*macValue) {
+          drop_cnt_value = bpf_map_lookup_elem(&drop_cnt, &drop_cnt_key);
+          if (drop_cnt_value) {
+            __u64 new_drop_cnt_value =*drop_cnt_value + 1;
+            bpf_map_update_elem(&drop_cnt, &drop_cnt_key, &new_drop_cnt_value, BPF_ANY);
+          }
           return XDP_DROP;
         }
       }
     }
+    pass_cnt_value = bpf_map_lookup_elem(&pass_cnt, &pass_cnt_key);
+    if (pass_cnt_value) {
+      __u64 new_pass_cnt_value =*pass_cnt_value + 1;
+      bpf_map_update_elem(&pass_cnt, &pass_cnt_key, &new_pass_cnt_value, BPF_ANY);
+    }
     return XDP_PASS;
   }
+
   struct iphdr *ip=NULL;
   data += sizeof(*ether); //将数据指针移动到IPv4头部
   ip = data;  
@@ -209,19 +251,27 @@ int firewall(struct xdp_md *ctx) {
   if (data + sizeof(*ip) > data_end) {
     return XDP_DROP;
   }
+
   __u32 saddr = ip->saddr;
   saddr = htonl(saddr); //将主机字节序转换为网络字节序
   __u64 *blocked_perm = NULL;    // Check ip_blacklist_p
   blocked_perm=bpf_map_lookup_elem(&ip_blacklist_p, &saddr);
   if (blocked_perm) {
+    drop_cnt_value = bpf_map_lookup_elem(&drop_cnt, &drop_cnt_key);
+    if (drop_cnt_value) {
+      __u64 new_drop_cnt_value =*drop_cnt_value + 1;
+      bpf_map_update_elem(&drop_cnt, &drop_cnt_key, &new_drop_cnt_value, BPF_ANY);
+    }
     return XDP_DROP;
   }
+
   __u64 *blocked_temp = NULL;    // Check ip_blacklist_t
   blocked_temp=bpf_map_lookup_elem(&ip_blacklist_t, &saddr);
   struct ip_stats* ip_stats_pointer= NULL;
   ip_stats_pointer=bpf_map_lookup_elem(&ip_counter, &saddr);
   __u64 now = bpf_ktime_get_ns(); //获取当前的内核时间戳(纳秒)
   __u16 pkt_len = data_end - data;
+
   if (blocked_temp) {
     __u32 block_flag_key=3;
     __u32 unblock_time_key=4;
@@ -231,6 +281,11 @@ int firewall(struct xdp_md *ctx) {
       return XDP_DROP;
     }
     if (*block_flag_value!=0) {
+      drop_cnt_value = bpf_map_lookup_elem(&drop_cnt, &drop_cnt_key);
+      if (drop_cnt_value) {
+        __u64 new_drop_cnt_value =*drop_cnt_value + 1;
+        bpf_map_update_elem(&drop_cnt, &drop_cnt_key, &new_drop_cnt_value, BPF_ANY);
+      }
       return XDP_DROP;
     }
     if (ip_stats_pointer) {
@@ -240,6 +295,11 @@ int firewall(struct xdp_md *ctx) {
         ip_stats_pointer->bps = pkt_len ;
         ip_stats_pointer->next_update = now + NANO_TO_SEC;
         bpf_map_update_elem(&ip_counter, &saddr, ip_stats_pointer, BPF_ANY);
+        pass_cnt_value = bpf_map_lookup_elem(&pass_cnt, &pass_cnt_key);
+        if (pass_cnt_value) {
+          __u64 new_pass_cnt_value =*pass_cnt_value + 1;
+          bpf_map_update_elem(&pass_cnt, &pass_cnt_key, &new_pass_cnt_value, BPF_ANY);
+        }
         return XDP_PASS;
       }
     } else {
@@ -249,8 +309,14 @@ int firewall(struct xdp_md *ctx) {
       new_ip_stats.next_update = now + NANO_TO_SEC;
       bpf_map_update_elem(&ip_counter, &saddr, &new_ip_stats, BPF_ANY);
     }
+    drop_cnt_value = bpf_map_lookup_elem(&drop_cnt, &drop_cnt_key);
+    if (drop_cnt_value) {
+      __u64 new_drop_cnt_value =*drop_cnt_value + 1;
+      bpf_map_update_elem(&drop_cnt, &drop_cnt_key, &new_drop_cnt_value, BPF_ANY);
+    }
     return XDP_DROP;
   }
+
   if (ip_stats_pointer) {
     if (now > ip_stats_pointer->next_update) {
       ip_stats_pointer->pps = 1;
@@ -270,8 +336,8 @@ int firewall(struct xdp_md *ctx) {
     bpf_map_update_elem(&ip_counter, &saddr, &new_ip_stats, BPF_ANY);
     ip_stats_pointer=bpf_map_lookup_elem(&ip_counter, &saddr);
   }
+
   if (ip_stats_pointer==NULL) {
-    //bpf_printk("pass----------ip_stats\n");
     return XDP_PASS;
   }
   __u32 limit_pps = default_pps;
@@ -286,9 +352,15 @@ int firewall(struct xdp_md *ctx) {
   if (bps_value) {
     limit_bps = *bps_value;
   }
+
   if (ip_stats_pointer->pps > limit_pps || ip_stats_pointer->bps > limit_bps) {
     __u32 value=1;
     bpf_map_update_elem(&ip_blacklist_t, &saddr, &value, BPF_ANY);
+    drop_cnt_value = bpf_map_lookup_elem(&drop_cnt, &drop_cnt_key);
+    if (drop_cnt_value) {
+      __u64 new_drop_cnt_value =*drop_cnt_value + 1;
+      bpf_map_update_elem(&drop_cnt, &drop_cnt_key, &new_drop_cnt_value, BPF_ANY);
+    }
     return XDP_DROP;
   }
 
@@ -307,6 +379,7 @@ int firewall(struct xdp_md *ctx) {
         return XDP_DROP;
       }
   }
+
   if (tcph  && (tcph->syn == 1) && (tcph->ack == 0)) {
     __u16 dport = ntohs(tcph->dest);
     struct syn_stats* syn_stats_pointer= NULL;
@@ -339,9 +412,16 @@ int firewall(struct xdp_md *ctx) {
     if (syn_stats_pointer->syn_count > limit_syn) {
       __u32 value=1;
       bpf_map_update_elem(&ip_blacklist_t, &saddr, &value, BPF_ANY);
+      drop_cnt_value = bpf_map_lookup_elem(&drop_cnt, &drop_cnt_key);
+      if (drop_cnt_value) {
+        __u64 new_drop_cnt_value =*drop_cnt_value + 1;
+        bpf_map_update_elem(&drop_cnt, &drop_cnt_key, &new_drop_cnt_value, BPF_ANY);
+      }
       return XDP_DROP;
     }
   }
+
+
   if (udph) {
     __u16 dport = ntohs(udph->dest);
     struct udp_stats* udp_stats_pointer= NULL;
@@ -374,10 +454,20 @@ int firewall(struct xdp_md *ctx) {
     if (udp_stats_pointer->udp_count > limit_udp) {
       __u32 value=1;
       bpf_map_update_elem(&ip_blacklist_t, &saddr, &value, BPF_ANY);
+      drop_cnt_value = bpf_map_lookup_elem(&drop_cnt, &drop_cnt_key);
+      if (drop_cnt_value) {
+        __u64 new_drop_cnt_value =*drop_cnt_value + 1;
+        bpf_map_update_elem(&drop_cnt, &drop_cnt_key, &new_drop_cnt_value, BPF_ANY);
+      }
       return XDP_DROP;
     }
   }
 
+  pass_cnt_value = bpf_map_lookup_elem(&pass_cnt, &pass_cnt_key);
+  if (pass_cnt_value) {
+    __u64 new_pass_cnt_value =*pass_cnt_value + 1;
+    bpf_map_update_elem(&pass_cnt, &pass_cnt_key, &new_pass_cnt_value, BPF_ANY);
+  }
   return XDP_PASS;
 }
 
