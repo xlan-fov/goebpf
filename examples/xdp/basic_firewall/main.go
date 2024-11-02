@@ -544,7 +544,7 @@ func main() {
 				var num_passcnt uint64
 				num_passcnt = binary.LittleEndian.Uint64(passCnt)
 				fmt.Fprintf(file, "\n丢弃包数目:%d\n", num_dropcnt)
-				fmt.Fprintf(file, "通过包数目:%d\n", num_dropcnt)
+				fmt.Fprintf(file, "通过包数目:%d\n", num_passcnt)
 
 				fmt.Fprintf(file, "\n")
 				fmt.Println("打印成功")
