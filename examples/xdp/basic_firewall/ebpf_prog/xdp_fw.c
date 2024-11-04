@@ -346,6 +346,7 @@ int firewall(struct xdp_md *ctx) {
     } else {
       new_ip_stats.pps = ip_stats_pointer->pps + 1;
       new_ip_stats.bps = ip_stats_pointer->bps + pkt_len;
+      new_ip_stats.next_update = ip_stats_pointer->next_update;
     }
   } else {
     new_ip_stats.pps = 1;
@@ -420,6 +421,7 @@ int firewall(struct xdp_md *ctx) {
         new_syn_stats.next_update = now + NANO_TO_SEC;
       } else {
         new_syn_stats.syn_count = syn_stats_pointer->syn_count + 1;
+        new_syn_stats.next_update = syn_stats_pointer->next_update;
       }
     } else {
       new_syn_stats.syn_count = 1;
@@ -460,6 +462,7 @@ int firewall(struct xdp_md *ctx) {
         new_udp_stats.next_update = now + NANO_TO_SEC;
       } else {
         new_udp_stats.udp_count = udp_stats_pointer->udp_count + 1;
+        new_udp_stats.next_update = udp_stats_pointer->next_update;
       }
     } else {
       new_udp_stats.udp_count = 1;
