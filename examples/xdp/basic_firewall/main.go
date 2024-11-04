@@ -59,7 +59,7 @@ func main() {
 	if err3 != nil {
 		fatalError("无法解析配置文件: %v", err3)
 	}
-	fmt.Printf("配置文件内容如下:\n")
+	fmt.Printf("\n配置文件内容如下:\n")
 	fmt.Printf("\nInterfaceName: %s\n", config.InterfaceName)
 	fmt.Printf("PPS: %d\n", config.PPS)
 	fmt.Printf("BPS: %d\n", config.BPS)
@@ -215,6 +215,17 @@ func main() {
 		// 初始化 pass_cnt 为 0
 		value := uint64(0)
 		err := pass_cnt.Insert(9, value)
+		if err != nil {
+			fatalError("数据无法插入 eBPF map: %v", err)
+		}
+	}
+	wrong_cnt := bpf.GetMapByName("wrong_cnt")
+	if wrong_cnt == nil {
+		fatalError("eBPF map 类型的 'wrong_cnt' 找不到")
+	} else {
+		// 初始化 wrong_cnt 为 0
+		value := uint64(0)
+		err := wrong_cnt.Insert(10, value)
 		if err != nil {
 			fatalError("数据无法插入 eBPF map: %v", err)
 		}
@@ -539,12 +550,19 @@ func main() {
 				if errm2 != nil {
 					fatalError("Unable to Lookup from eBPF map: %v", errm2)
 				}
+				wrongCnt, errm3 := wrong_cnt.Lookup(uint32(10))
+				if errm3 != nil {
+					fatalError("Unable to Lookup from eBPF map: %v", errm3)
+				}
 				var num_dropcnt uint64
 				num_dropcnt = binary.LittleEndian.Uint64(dropCnt)
 				var num_passcnt uint64
 				num_passcnt = binary.LittleEndian.Uint64(passCnt)
+				var num_wrongcnt uint64
+				num_wrongcnt = binary.LittleEndian.Uint64(wrongCnt)
 				fmt.Fprintf(file, "\n丢弃包数目:%d\n", num_dropcnt)
 				fmt.Fprintf(file, "通过包数目:%d\n", num_passcnt)
+				fmt.Fprintf(file, "错误包数目:%d\n", num_wrongcnt)
 
 				fmt.Fprintf(file, "\n")
 				fmt.Println("打印成功")
@@ -659,12 +677,19 @@ func main() {
 				if errm2 != nil {
 					fatalError("Unable to Lookup from eBPF map: %v", errm2)
 				}
+				wrongCnt, errm3 := wrong_cnt.Lookup(uint32(10))
+				if errm3 != nil {
+					fatalError("Unable to Lookup from eBPF map: %v", errm3)
+				}
 				var num_dropcnt uint64
 				num_dropcnt = binary.LittleEndian.Uint64(dropCnt)
 				var num_passcnt uint64
 				num_passcnt = binary.LittleEndian.Uint64(passCnt)
+				var num_wrongcnt uint64
+				num_wrongcnt = binary.LittleEndian.Uint64(wrongCnt)
 				fmt.Printf("\n丢弃包数目:%d\n", num_dropcnt)
 				fmt.Printf("通过包数目:%d\n", num_passcnt)
+				fmt.Printf("错误包数目:%d\n", num_wrongcnt)
 			} else {
 				fmt.Print("\n退出修改\n")
 			}

@@ -150,6 +150,14 @@ BPF_MAP_DEF(pass_cnt) = {
 };
 BPF_MAP_ADD(pass_cnt);
 
+BPF_MAP_DEF(wrong_cnt) = {
+    .map_type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(__u32),  //key = 10
+    .value_size = sizeof(__u64),
+    .max_entries = 1,
+};
+BPF_MAP_ADD(wrong_cnt);
+
 struct arp_hdr {
     __u16 hardware_type;      // 硬件类型
     __u16 protocol_type;      // 协议类型
@@ -180,10 +188,17 @@ int firewall(struct xdp_md *ctx) {
   struct ethhdr *ether = data;
   __u32 drop_cnt_key=8;
   __u32 pass_cnt_key=9;
+  __u32 wrong_cnt_key=10;
   __u64* drop_cnt_value = NULL;
   __u64* pass_cnt_value = NULL;
+  __u64* wrong_cnt_value = NULL;
   //以太网头部超出边界说明以太网头部不完整，要丢弃
   if (data + sizeof(*ether) > data_end) { 
+    wrong_cnt_value = bpf_map_lookup_elem(&wrong_cnt, &wrong_cnt_key);
+    if (wrong_cnt_value) {
+      __u64 new_wrong_cnt_value =*wrong_cnt_value + 1;
+      bpf_map_update_elem(&wrong_cnt, &wrong_cnt_key, &new_wrong_cnt_value, BPF_ANY);
+    }
     return XDP_DROP;
   }
 
@@ -196,6 +211,11 @@ int firewall(struct xdp_md *ctx) {
     void* arp_data = data + sizeof(*ether);
     struct arp_hdr *arp = arp_data;
     if (arp_data + sizeof(*arp) > data_end) {
+      wrong_cnt_value = bpf_map_lookup_elem(&wrong_cnt, &wrong_cnt_key);
+      if (wrong_cnt_value) {
+        __u64 new_wrong_cnt_value =*wrong_cnt_value + 1;
+        bpf_map_update_elem(&wrong_cnt, &wrong_cnt_key, &new_wrong_cnt_value, BPF_ANY);
+      }
       return XDP_DROP;
     }
     __u32 arp_flag_key=7;
@@ -244,6 +264,11 @@ int firewall(struct xdp_md *ctx) {
   ip = data;  
   //检查IPv4头部是否超出数据包的边界
   if (data + sizeof(*ip) > data_end) {
+    wrong_cnt_value = bpf_map_lookup_elem(&wrong_cnt, &wrong_cnt_key);
+    if (wrong_cnt_value) {
+      __u64 new_wrong_cnt_value =*wrong_cnt_value + 1;
+      bpf_map_update_elem(&wrong_cnt, &wrong_cnt_key, &new_wrong_cnt_value, BPF_ANY);
+    }
     return XDP_DROP;
   }
 
@@ -365,12 +390,22 @@ int firewall(struct xdp_md *ctx) {
     case IPPROTO_TCP:
       tcph = data + sizeof(*ether) + sizeof(*ip);
       if (data + sizeof(*ether) + sizeof(*ip) + sizeof(*tcph) > data_end) {
+        wrong_cnt_value = bpf_map_lookup_elem(&wrong_cnt, &wrong_cnt_key);
+        if (wrong_cnt_value) {
+          __u64 new_wrong_cnt_value =*wrong_cnt_value + 1;
+          bpf_map_update_elem(&wrong_cnt, &wrong_cnt_key, &new_wrong_cnt_value, BPF_ANY);
+        }
         return XDP_DROP;
       }
       break;
     case IPPROTO_UDP:
       udph = data + sizeof(*ether) + sizeof(*ip);
       if (data + sizeof(*ether) + sizeof(*ip) + sizeof(*udph) > data_end) {
+        wrong_cnt_value = bpf_map_lookup_elem(&wrong_cnt, &wrong_cnt_key);
+        if (wrong_cnt_value) {
+          __u64 new_wrong_cnt_value =*wrong_cnt_value + 1;
+          bpf_map_update_elem(&wrong_cnt, &wrong_cnt_key, &new_wrong_cnt_value, BPF_ANY);
+        }
         return XDP_DROP;
       }
   }
