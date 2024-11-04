@@ -298,7 +298,7 @@ int firewall(struct xdp_md *ctx) {
     __u64 *block_flag_value = bpf_map_lookup_elem(&block_flag, &block_flag_key);
     __u64 *unblock_time_value = bpf_map_lookup_elem(&unblock_time, &unblock_time_key);
     if (block_flag_value==NULL || unblock_time_value==NULL) {
-      return XDP_PASS;
+      return XDP_DROP;
     }
     if (*block_flag_value!=0) {
       drop_cnt_value = bpf_map_lookup_elem(&drop_cnt, &drop_cnt_key);
@@ -311,10 +311,11 @@ int firewall(struct xdp_md *ctx) {
     if (ip_stats_pointer) {
       if (now - ip_stats_pointer->next_update >= (*unblock_time_value)*NANO_TO_SEC) {
         bpf_map_delete_elem(&ip_blacklist_t, &saddr);
-        ip_stats_pointer->pps = 1;
-        ip_stats_pointer->bps = pkt_len ;
-        ip_stats_pointer->next_update = now + NANO_TO_SEC;
-        bpf_map_update_elem(&ip_counter, &saddr, ip_stats_pointer, BPF_ANY);
+        struct ip_stats new_ip_stats={0};
+        new_ip_stats.pps = 1;
+        new_ip_stats.bps = pkt_len;
+        new_ip_stats.next_update = now + NANO_TO_SEC;
+        bpf_map_update_elem(&ip_counter, &saddr, &new_ip_stats, BPF_ANY);
         pass_cnt_value = bpf_map_lookup_elem(&pass_cnt, &pass_cnt_key);
         if (pass_cnt_value) {
           __u64 new_pass_cnt_value =*pass_cnt_value + 1;
@@ -338,25 +339,22 @@ int firewall(struct xdp_md *ctx) {
   }
 
   if (ip_stats_pointer) {
-    if (now > ip_stats_pointer->next_update) {
-      ip_stats_pointer->pps = 1;
-      ip_stats_pointer->bps = pkt_len ;
-      ip_stats_pointer->next_update = now + NANO_TO_SEC;
-    } else {
-      ip_stats_pointer->pps+=1;
-      ip_stats_pointer->bps += pkt_len;
-    }
-    bpf_map_update_elem(&ip_counter, &saddr, ip_stats_pointer, BPF_ANY);
-    ip_stats_pointer=bpf_map_lookup_elem(&ip_counter, &saddr);
-  } else {
     struct ip_stats new_ip_stats={0};
+    if (now > ip_stats_pointer->next_update) {
+      new_ip_stats.pps = 1;
+      new_ip_stats.bps = pkt_len;
+      new_ip_stats.next_update = now + NANO_TO_SEC;
+    } else {
+      new_ip_stats.pps = ip_stats_pointer->pps + 1;
+      new_ip_stats.bps = ip_stats_pointer->bps + pkt_len;
+    }
+  } else {
     new_ip_stats.pps = 1;
     new_ip_stats.bps = pkt_len;
     new_ip_stats.next_update = now + NANO_TO_SEC;
-    bpf_map_update_elem(&ip_counter, &saddr, &new_ip_stats, BPF_ANY);
-    ip_stats_pointer=bpf_map_lookup_elem(&ip_counter, &saddr);
   }
-
+  bpf_map_update_elem(&ip_counter, &saddr, &new_ip_stats, BPF_ANY);
+  ip_stats_pointer=bpf_map_lookup_elem(&ip_counter, &saddr);
   if (ip_stats_pointer==NULL) {
     return XDP_PASS;
   }
@@ -416,22 +414,20 @@ int firewall(struct xdp_md *ctx) {
     __u16 dport = ntohs(tcph->dest);
     struct syn_stats* syn_stats_pointer= NULL;
     syn_stats_pointer=bpf_map_lookup_elem(&syn_counter, &dport);
+    struct syn_stats new_syn_stats={0};
     if (syn_stats_pointer) {
       if (now > syn_stats_pointer->next_update) {
-        syn_stats_pointer->syn_count = 1;
-        syn_stats_pointer->next_update = now + NANO_TO_SEC;
+        new_syn_stats.syn_count = 1;
+        new_syn_stats.next_update = now + NANO_TO_SEC;
       } else {
-        syn_stats_pointer->syn_count += 1;
+        new_syn_stats.syn_count = syn_stats_pointer->syn_count + 1;
       }
-      bpf_map_update_elem(&syn_counter, &dport, syn_stats_pointer, BPF_ANY);
-      syn_stats_pointer=bpf_map_lookup_elem(&syn_counter, &dport);
     } else {
-      struct syn_stats new_syn_stats={0};
       new_syn_stats.syn_count = 1;
       new_syn_stats.next_update = now + NANO_TO_SEC;
-      bpf_map_update_elem(&syn_counter, &dport, &new_syn_stats, BPF_ANY);
-      syn_stats_pointer=bpf_map_lookup_elem(&syn_counter, &dport);
     }
+    bpf_map_update_elem(&syn_counter, &dport, &new_syn_stats, BPF_ANY);
+    syn_stats_pointer=bpf_map_lookup_elem(&syn_counter, &dport);
     if (syn_stats_pointer==NULL) {
       return XDP_PASS;
     }
@@ -458,22 +454,20 @@ int firewall(struct xdp_md *ctx) {
     __u16 dport = ntohs(udph->dest);
     struct udp_stats* udp_stats_pointer= NULL;
     udp_stats_pointer=bpf_map_lookup_elem(&udp_counter, &dport);
+    struct udp_stats new_udp_stats={0};
     if (udp_stats_pointer) {
       if (now > udp_stats_pointer->next_update) {
-        udp_stats_pointer->udp_count = 1;
-        udp_stats_pointer->next_update = now + NANO_TO_SEC;
+        new_udp_stats.udp_count = 1;
+        new_udp_stats.next_update = now + NANO_TO_SEC;
       } else {
-        udp_stats_pointer->udp_count += 1;
+        new_udp_stats.udp_count = udp_stats_pointer->udp_count + 1;
       }
-      bpf_map_update_elem(&udp_counter, &dport, udp_stats_pointer, BPF_ANY);
-      udp_stats_pointer=bpf_map_lookup_elem(&udp_counter, &dport);
     } else {
-      struct udp_stats new_udp_stats={0};
       new_udp_stats.udp_count = 1;
       new_udp_stats.next_update = now + NANO_TO_SEC;
-      bpf_map_update_elem(&udp_counter, &dport, &new_udp_stats, BPF_ANY);
-      udp_stats_pointer=bpf_map_lookup_elem(&udp_counter, &dport);
     }
+    bpf_map_update_elem(&udp_counter, &dport, &new_udp_stats, BPF_ANY);
+    udp_stats_pointer=bpf_map_lookup_elem(&udp_counter, &dport);
     if (udp_stats_pointer==NULL) {
       return XDP_PASS;
     }
