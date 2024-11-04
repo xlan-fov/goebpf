@@ -386,10 +386,11 @@ int firewall(struct xdp_md *ctx) {
 
   struct tcphdr *tcph = NULL;
   struct udphdr *udph = NULL;
+  data += sizeof(*ip);
   switch (ip->protocol) {
     case IPPROTO_TCP:
-      tcph = data + sizeof(*ether) + sizeof(*ip);
-      if (data + sizeof(*ether) + sizeof(*ip) + sizeof(*tcph) > data_end) {
+      tcph = data;
+      if (data  + sizeof(*tcph) > data_end) {
         wrong_cnt_value = bpf_map_lookup_elem(&wrong_cnt, &wrong_cnt_key);
         if (wrong_cnt_value) {
           __u64 new_wrong_cnt_value =*wrong_cnt_value + 1;
@@ -399,8 +400,8 @@ int firewall(struct xdp_md *ctx) {
       }
       break;
     case IPPROTO_UDP:
-      udph = data + sizeof(*ether) + sizeof(*ip);
-      if (data + sizeof(*ether) + sizeof(*ip) + sizeof(*udph) > data_end) {
+      udph = data;
+      if (data  + sizeof(*udph) > data_end) {
         wrong_cnt_value = bpf_map_lookup_elem(&wrong_cnt, &wrong_cnt_key);
         if (wrong_cnt_value) {
           __u64 new_wrong_cnt_value =*wrong_cnt_value + 1;
@@ -409,6 +410,7 @@ int firewall(struct xdp_md *ctx) {
         return XDP_DROP;
       }
   }
+
 
   if (tcph  && (tcph->syn == 1) && (tcph->ack == 0)) {
     __u16 dport = ntohs(tcph->dest);
