@@ -246,7 +246,7 @@ func main() {
 		"4. Ipv4BlacklistPerm(永久ip黑名单)\t5. BlockFlag(是否永久封禁临时黑名单中的ip,0表示不永久,1表示永久)\n" +
 		"6. UnBlockTime(不永久封禁时,临时ip的解封时间(秒))\t7. Print(打印信息到文件)\n" +
 		"8. SYNPS(每秒SYN请求数)\t9. UDPPS(每秒UDP包数)\t10. ArpFlag(是否启用ip-mac映射表,0表示不启用,1表示启用)\n" +
-		"11. ArpTable(配置ip-mac映射表)\t12. statistics(统计丢弃包和通过包数目)\t13. Quit(退出修改)\n"
+		"11. ArpTable(配置ip-mac映射表)\t12. Statistics(统计丢弃包和通过包数目)\t13. Quit(退出修改)\n"
 	for {
 		fmt.Print("按'e'键修改配置，按'q'键退出程序\n")
 		text, _ := reader.ReadString('\n')

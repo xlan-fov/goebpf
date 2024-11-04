@@ -1,5 +1,5 @@
 {
-    "InterfaceName": "eth2",
+    "InterfaceName": "lo",
     "PPS": 100,
     "BPS": 1000000,
     "Ipv4BlacklistTemp": ["10.190.1.1"],

@@ -153,8 +153,8 @@ BPF_MAP_ADD(pass_cnt);
 struct arp_hdr {
     __u16 hardware_type;      // 硬件类型
     __u16 protocol_type;      // 协议类型
-    __u8 hardware_size;        // 硬件地址长度
-    __u8 protocol_size;        // 协议地址长度
+    __u8 hardware_size;        // mac地址长度
+    __u8 protocol_size;        // ip地址长度
     __u16 opcode;             // 操作码
     unsigned char sender_hard_addr[ETH_ALEN]; // 发送方硬件地址
     __u32 sender_proto_addr;  // 发送方协议地址
@@ -189,11 +189,6 @@ int firewall(struct xdp_md *ctx) {
 
   if (ether->h_proto != htons(ETH_P_IP) && ether->h_proto != htons(ETH_P_ARP) ) {  
     // 非IPv4或arp数据包，直接放行
-    pass_cnt_value = bpf_map_lookup_elem(&pass_cnt, &pass_cnt_key);
-    if (pass_cnt_value) {
-      __u64 new_pass_cnt_value =*pass_cnt_value + 1;
-      bpf_map_update_elem(&pass_cnt, &pass_cnt_key, &new_pass_cnt_value, BPF_ANY);
-    }
     return XDP_PASS;
   }
 
@@ -206,7 +201,7 @@ int firewall(struct xdp_md *ctx) {
     __u32 arp_flag_key=7;
     __u64 *arp_flag_value = bpf_map_lookup_elem(&arp_flag, &arp_flag_key);
     if (arp_flag_value==NULL) {
-      return XDP_DROP;
+      return XDP_PASS;
     }
     if (*arp_flag_value!=0) { //根据ip-mac映射表进行过滤
       __u32 saddr = arp->sender_proto_addr;
@@ -278,7 +273,7 @@ int firewall(struct xdp_md *ctx) {
     __u64 *block_flag_value = bpf_map_lookup_elem(&block_flag, &block_flag_key);
     __u64 *unblock_time_value = bpf_map_lookup_elem(&unblock_time, &unblock_time_key);
     if (block_flag_value==NULL || unblock_time_value==NULL) {
-      return XDP_DROP;
+      return XDP_PASS;
     }
     if (*block_flag_value!=0) {
       drop_cnt_value = bpf_map_lookup_elem(&drop_cnt, &drop_cnt_key);
