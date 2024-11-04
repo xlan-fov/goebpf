@@ -329,7 +329,7 @@ int firewall(struct xdp_md *ctx) {
           __u64 new_pass_cnt_value =*pass_cnt_value + 1;
           bpf_map_update_elem(&pass_cnt, &pass_cnt_key, &new_pass_cnt_value, BPF_ANY);
         }
-        temp_cnt_key=11;
+        __u32 temp_cnt_key=11;
         __u64 *temp_cnt_value = bpf_map_lookup_elem(&temp_cnt, &temp_cnt_key);
         if (temp_cnt_value) {
           __u64 new_temp_cnt_value =*temp_cnt_value + 1;
