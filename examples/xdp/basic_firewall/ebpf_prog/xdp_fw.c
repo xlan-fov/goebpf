@@ -158,6 +158,14 @@ BPF_MAP_DEF(wrong_cnt) = {
 };
 BPF_MAP_ADD(wrong_cnt);
 
+BPF_MAP_DEF(temp_cnt) = {
+    .map_type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(__u32),  //key = 11
+    .value_size = sizeof(__u64),
+    .max_entries = 1,
+};
+BPF_MAP_ADD(temp_cnt);
+
 struct arp_hdr {
     __u16 hardware_type;      // 硬件类型
     __u16 protocol_type;      // 协议类型
@@ -321,6 +329,12 @@ int firewall(struct xdp_md *ctx) {
           __u64 new_pass_cnt_value =*pass_cnt_value + 1;
           bpf_map_update_elem(&pass_cnt, &pass_cnt_key, &new_pass_cnt_value, BPF_ANY);
         }
+        temp_cnt_key=11;
+        __u64 *temp_cnt_value = bpf_map_lookup_elem(&temp_cnt, &temp_cnt_key);
+        if (temp_cnt_value) {
+          __u64 new_temp_cnt_value =*temp_cnt_value + 1;
+          bpf_map_update_elem(&temp_cnt, &temp_cnt_key, &new_temp_cnt_value, BPF_ANY);
+        }
         return XDP_PASS;
       }
     } else {
@@ -356,7 +370,7 @@ int firewall(struct xdp_md *ctx) {
   bpf_map_update_elem(&ip_counter, &saddr, &new_ip_stats, BPF_ANY);
   ip_stats_pointer=bpf_map_lookup_elem(&ip_counter, &saddr);
   if (ip_stats_pointer==NULL) {
-    return XDP_PASS;
+    return XDP_DROP;
   }
   __u32 limit_pps = default_pps;
   __u32 limit_bps = default_bps;
