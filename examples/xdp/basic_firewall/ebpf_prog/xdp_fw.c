@@ -337,9 +337,8 @@ int firewall(struct xdp_md *ctx) {
     }
     return XDP_DROP;
   }
-
+  struct ip_stats new_ip_stats={0};
   if (ip_stats_pointer) {
-    struct ip_stats new_ip_stats={0};
     if (now > ip_stats_pointer->next_update) {
       new_ip_stats.pps = 1;
       new_ip_stats.bps = pkt_len;
