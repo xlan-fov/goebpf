@@ -384,7 +384,7 @@ int firewall(struct xdp_md *ctx) {
 
   struct tcphdr *tcph = NULL;
   struct udphdr *udph = NULL;
-  data += sizeof(*ip);
+  data += ip->ihl * 4;
   switch (ip->protocol) {
     case IPPROTO_TCP:
       tcph = data;
