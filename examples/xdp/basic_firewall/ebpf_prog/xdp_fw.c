@@ -166,6 +166,30 @@ BPF_MAP_DEF(temp_cnt) = {
 };
 BPF_MAP_ADD(temp_cnt);
 
+BPF_MAP_DEF(now_cnt) = {
+    .map_type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(__u32),  //key = 12
+    .value_size = sizeof(__u64),
+    .max_entries = 1,
+};
+BPF_MAP_ADD(now_cnt);
+
+BPF_MAP_DEF(next_cnt) = {
+    .map_type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(__u32),  //key = 13
+    .value_size = sizeof(__u64),
+    .max_entries = 1,
+};
+BPF_MAP_ADD(next_cnt);
+
+BPF_MAP_DEF(btime_cnt) = {
+    .map_type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(__u32),  //key = 14
+    .value_size = sizeof(__u64),
+    .max_entries = 1,
+};
+BPF_MAP_ADD(btime_cnt);
+
 struct arp_hdr {
     __u16 hardware_type;      // 硬件类型
     __u16 protocol_type;      // 协议类型
@@ -317,6 +341,15 @@ int firewall(struct xdp_md *ctx) {
       return XDP_DROP;
     }
     if (ip_stats_pointer) {
+      __u32 now_cnt_key=12;
+      __u32 next_cnt_key=13;
+      __u32 btime_cnt_key=14;
+      __u64 nowtemp=now;
+      __u64 nexttemp=ip_stats_pointer->next_update;
+      __u64 btimetemp=(*unblock_time_value) * NANO_TO_SEC;
+      bpf_map_update_elem(&now_cnt, &now_cnt_key, &nowtemp, BPF_ANY);
+      bpf_map_update_elem(&next_cnt, &next_cnt_key, &nexttemp, BPF_ANY);
+      bpf_map_update_elem(&btime_cnt, &btime_cnt_key, &btimetemp, BPF_ANY);
       if (now - ip_stats_pointer->next_update >= (*unblock_time_value)*NANO_TO_SEC) {
         bpf_map_delete_elem(&ip_blacklist_t, &saddr);
         struct ip_stats new_ip_stats={0};

@@ -1,11 +1,11 @@
 {
     "InterfaceName": "lo",
-    "PPS": 100,
+    "PPS": 1000,
     "BPS": 1000000,
     "Ipv4BlacklistTemp": ["10.190.1.1"],
     "Ipv4BlacklistPerm": ["10.90.5.21", "172.18.133.27"],
     "BlockFlag":0,
-    "UnBlockTime":60,
+    "UnBlockTime":6,
     "SYNPS":50,
     "UDPPS":500,
     "ArpFlag":0,

@@ -241,6 +241,39 @@ func main() {
 			fatalError("数据无法插入 eBPF map: %v", err)
 		}
 	}
+	now_cnt := bpf.GetMapByName("now_cnt")
+	if now_cnt == nil {
+		fatalError("eBPF map 类型的 'now_cnt' 找不到")
+	} else {
+		// 初始化 now_cnt 为 0
+		value := uint64(0)
+		err := now_cnt.Insert(12, value)
+		if err != nil {
+			fatalError("数据无法插入 eBPF map: %v", err)
+		}
+	}
+	next_cnt := bpf.GetMapByName("next_cnt")
+	if next_cnt == nil {
+		fatalError("eBPF map 类型的 'next_cnt' 找不到")
+	} else {
+		// 初始化 next_cnt 为 0
+		value := uint64(0)
+		err := next_cnt.Insert(13, value)
+		if err != nil {
+			fatalError("数据无法插入 eBPF map: %v", err)
+		}
+	}
+	btime_cnt := bpf.GetMapByName("btime_cnt")
+	if btime_cnt == nil {
+		fatalError("eBPF map 类型的 'btime_cnt' 找不到")
+	} else {
+		// 初始化 btime_cnt 为 0
+		value := uint64(0)
+		err := btime_cnt.Insert(14, value)
+		if err != nil {
+			fatalError("数据无法插入 eBPF map: %v", err)
+		}
+	}
 	//获取名为'firewall'的XDP程序
 	xdp := bpf.GetProgramByName("firewall")
 	if xdp == nil {
@@ -486,6 +519,11 @@ func main() {
 					if err2 != nil {
 						fatalError("Unable to Insert into eBPF map: %v", err2)
 					}
+					tempNum, err_temp := un_block_time.Lookup(4)
+					if err_temp != nil {
+						fmt.Println("Unable to Lookup from eBPF map: %v", err_temp)
+					}
+					fmt.Printf("\n解封时间:%d\n", tempNum)
 				}
 			} else if num == 7 {
 				fmt.Print("请输入要打印的文件名(不输入请直接按回车,并采用默认文件名xdp_fw.log):")
@@ -697,6 +735,18 @@ func main() {
 				if errm4 != nil {
 					fatalError("Unable to Lookup from eBPF map: %v", errm4)
 				}
+				nowCnt, errm5 := now_cnt.Lookup(uint32(12))
+				if errm5 != nil {
+					fatalError("Unable to Lookup from eBPF map: %v", errm5)
+				}
+				nextCnt, errm6 := next_cnt.Lookup(uint32(13))
+				if errm6 != nil {
+					fatalError("Unable to Lookup from eBPF map: %v", errm6)
+				}
+				btimeCnt, errm7 := btime_cnt.Lookup(uint32(14))
+				if errm7 != nil {
+					fatalError("Unable to Lookup from eBPF map: %v", errm7)
+				}
 				var num_dropcnt uint64
 				num_dropcnt = binary.LittleEndian.Uint64(dropCnt)
 				var num_passcnt uint64
@@ -705,10 +755,19 @@ func main() {
 				num_wrongcnt = binary.LittleEndian.Uint64(wrongCnt)
 				var num_tempcnt uint64
 				num_tempcnt = binary.LittleEndian.Uint64(tempCnt)
+				var num_nowcnt uint64
+				num_nowcnt = binary.LittleEndian.Uint64(nowCnt)
+				var num_nextcnt uint64
+				num_nextcnt = binary.LittleEndian.Uint64(nextCnt)
+				var num_btimecnt uint64
+				num_btimecnt = binary.LittleEndian.Uint64(btimeCnt)
 				fmt.Printf("\n丢弃包数目:%d\n", num_dropcnt)
 				fmt.Printf("通过包数目:%d\n", num_passcnt)
 				fmt.Printf("错误包数目:%d\n", num_wrongcnt)
 				fmt.Printf("解禁次数:%d\n", num_tempcnt)
+				fmt.Printf("当前时间:%d\n", num_nowcnt)
+				fmt.Printf("下一次时间:%d\n", num_nextcnt)
+				fmt.Printf("封禁时间:%d\n", num_btimecnt)
 			} else {
 				fmt.Print("\n退出修改\n")
 			}
