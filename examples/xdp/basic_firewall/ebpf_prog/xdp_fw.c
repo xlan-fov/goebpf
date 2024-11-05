@@ -350,7 +350,7 @@ int firewall(struct xdp_md *ctx) {
       bpf_map_update_elem(&now_cnt, &now_cnt_key, &nowtemp, BPF_ANY);
       bpf_map_update_elem(&next_cnt, &next_cnt_key, &nexttemp, BPF_ANY);
       bpf_map_update_elem(&btime_cnt, &btime_cnt_key, &btimetemp, BPF_ANY);
-      if (now - ip_stats_pointer->next_update >= (*unblock_time_value)*NANO_TO_SEC) {
+      if (now > ip_stats_pointer->next_update && now - ip_stats_pointer->next_update >= (*unblock_time_value)*NANO_TO_SEC) {
         bpf_map_delete_elem(&ip_blacklist_t, &saddr);
         struct ip_stats new_ip_stats={0};
         new_ip_stats.pps = 1;
